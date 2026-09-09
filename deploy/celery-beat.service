@@ -1,0 +1,28 @@
+# Unit de systemd para celery-beat de cobranza_cessa -- dispara
+# verificar_transacciones_pendientes y enviar_facturas_pendientes cada 60s
+# (CELERY_BEAT_SCHEDULE en config/settings/base.py). Usa el scheduler de
+# archivo por defecto de Celery (no django-celery-beat) -- el archivo
+# celerybeat-schedule debe vivir en una ruta escribible y persistir entre
+# reinicios (si se pierde, celery lo recrea solo, no es grave, pero mejor no
+# ponerlo en /tmp). Copiar a
+# /etc/systemd/system/cobranza-cessa-celery-beat.service.
+
+[Unit]
+Description=cobranza_cessa (celery beat)
+After=network.target redis.service
+
+[Service]
+Type=simple
+User=cobranza
+Group=cobranza
+WorkingDirectory=/opt/cobranza_cessa
+EnvironmentFile=/opt/cobranza_cessa/.env
+Environment="DJANGO_SETTINGS_MODULE=config.settings.production"
+ExecStart=/opt/cobranza_cessa/.venv/bin/celery -A config beat -l info \
+    --schedule=/opt/cobranza_cessa/celerybeat-schedule \
+    --logfile=/var/log/cobranza_cessa/celery-beat.log
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

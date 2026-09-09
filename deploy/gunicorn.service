@@ -1,0 +1,37 @@
+# Unit de systemd para el proceso web (gunicorn) de cobranza_cessa.
+# Copiar a /etc/systemd/system/cobranza-cessa-gunicorn.service en 10.1.1.88,
+# ajustar rutas/usuario, y:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now cobranza-cessa-gunicorn
+#
+# IMPORTANTE: manage.py/celery.py de este proyecto usan
+# `os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.dev")` --
+# el default es DEV, no producción. Sin el Environment= de abajo, gunicorn
+# (que sí importa config.settings.production directo en wsgi.py) andaría
+# bien, pero cualquier `python manage.py <comando>` corrido a mano en el
+# servidor sin este export usaría accidentalmente settings de DEV (DEBUG=True,
+# etc.). Exportar SIEMPRE este valor en la shell del servidor también, no
+# solo acá.
+
+[Unit]
+Description=cobranza_cessa (gunicorn)
+After=network.target postgresql.service redis.service
+
+[Service]
+Type=notify
+User=cobranza
+Group=cobranza
+WorkingDirectory=/opt/cobranza_cessa
+EnvironmentFile=/opt/cobranza_cessa/.env
+Environment="DJANGO_SETTINGS_MODULE=config.settings.production"
+ExecStart=/opt/cobranza_cessa/.venv/bin/gunicorn config.wsgi:application \
+    --bind 127.0.0.1:8001 \
+    --workers 3 \
+    --timeout 60 \
+    --access-logfile /var/log/cobranza_cessa/gunicorn-access.log \
+    --error-logfile /var/log/cobranza_cessa/gunicorn-error.log
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

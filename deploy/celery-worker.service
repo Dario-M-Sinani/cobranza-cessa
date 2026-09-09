@@ -1,0 +1,23 @@
+# Unit de systemd para el worker de Celery de cobranza_cessa -- ejecuta las
+# tareas periódicas (verificar_transacciones_pendientes,
+# enviar_facturas_pendientes) que dispara celery-beat.service.
+# Copiar a /etc/systemd/system/cobranza-cessa-celery-worker.service.
+
+[Unit]
+Description=cobranza_cessa (celery worker)
+After=network.target redis.service
+
+[Service]
+Type=simple
+User=cobranza
+Group=cobranza
+WorkingDirectory=/opt/cobranza_cessa
+EnvironmentFile=/opt/cobranza_cessa/.env
+Environment="DJANGO_SETTINGS_MODULE=config.settings.production"
+ExecStart=/opt/cobranza_cessa/.venv/bin/celery -A config worker -l info \
+    --logfile=/var/log/cobranza_cessa/celery-worker.log
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
