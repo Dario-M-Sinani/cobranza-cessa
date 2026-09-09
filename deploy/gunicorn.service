@@ -21,15 +21,15 @@ After=network.target postgresql.service redis.service
 Type=notify
 User=cobranza
 Group=cobranza
-WorkingDirectory=/opt/cobranza_cessa
-EnvironmentFile=/opt/cobranza_cessa/.env
+WorkingDirectory=/opt/cobranza-cessa
+EnvironmentFile=/opt/cobranza-cessa/.env
 Environment="DJANGO_SETTINGS_MODULE=config.settings.production"
-ExecStart=/opt/cobranza_cessa/.venv/bin/gunicorn config.wsgi:application \
+ExecStart=/opt/cobranza-cessa/.venv/bin/gunicorn config.wsgi:application \
     --bind 127.0.0.1:8001 \
     --workers 3 \
     --timeout 60 \
-    --access-logfile /var/log/cobranza_cessa/gunicorn-access.log \
-    --error-logfile /var/log/cobranza_cessa/gunicorn-error.log
+    --access-logfile /var/log/cobranza-cessa/gunicorn-access.log \
+    --error-logfile /var/log/cobranza-cessa/gunicorn-error.log
 Restart=on-failure
 RestartSec=5
 

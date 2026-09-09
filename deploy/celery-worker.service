@@ -11,11 +11,11 @@ After=network.target redis.service
 Type=simple
 User=cobranza
 Group=cobranza
-WorkingDirectory=/opt/cobranza_cessa
-EnvironmentFile=/opt/cobranza_cessa/.env
+WorkingDirectory=/opt/cobranza-cessa
+EnvironmentFile=/opt/cobranza-cessa/.env
 Environment="DJANGO_SETTINGS_MODULE=config.settings.production"
-ExecStart=/opt/cobranza_cessa/.venv/bin/celery -A config worker -l info \
-    --logfile=/var/log/cobranza_cessa/celery-worker.log
+ExecStart=/opt/cobranza-cessa/.venv/bin/celery -A config worker -l info \
+    --logfile=/var/log/cobranza-cessa/celery-worker.log
 Restart=on-failure
 RestartSec=5
 

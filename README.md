@@ -214,10 +214,10 @@ Plantillas de systemd/nginx en `deploy/` (`gunicorn.service`,
 `celery-worker.service`, `celery-beat.service`, `nginx.conf`) -- copiar,
 ajustar rutas/usuario y habilitar. Checklist completo:
 
-1. **Servidor**: Python 3.13, PostgreSQL, Redis, nginx -- clonar/copiar este
-   repo a `/opt/cobranza_cessa` (hoy sin git remoto; ver con el usuario cómo
-   se sube: git init + push, o copia directa).
-2. **Entorno**: `python -m venv .venv && pip install -r requirements/production.txt`.
+1. **Servidor**: Python 3.10+ (probado con 3.12), PostgreSQL, Redis, nginx --
+   `git clone https://github.com/Dario-M-Sinani/cobranza-cessa.git /opt/cobranza-cessa`
+   (repo privado -- necesita un token/deploy key con acceso, o clonar por SSH).
+2. **Entorno**: `python3 -m venv .venv && .venv/bin/pip install -r requirements/production.txt`.
 3. **`.env` real** (nunca el de `-test`/dev): `DATABASE_URL` a un Postgres
    real, `SECRET_KEY` nuevo, `ALLOWED_HOSTS`/`CORS_ALLOWED_ORIGINS` con el
    dominio real, `COBRANZAS_BANCO_CLIENT_CLASS=services.cobranzas_banco_client.LumenCobranzasBancoClient`,
