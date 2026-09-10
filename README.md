@@ -182,14 +182,22 @@ pytest
 ## Integraciones externas
 
 - **MC4/SIP** (`services/mc4_client.py`): misma pasarela que usa
-  `cessa-laravel` en producción (`SipQrProvider.php`, Banco BISA). El stub
-  sigue el contrato real (`generaQr`, `estadoTransaccion`,
-  `inhabilitarPago`, auth con token cacheado 1h) pero no está probado desde
-  este proyecto — faltan credenciales propias.
+  `cessa-laravel` en producción (`SipQrProvider.php`, Banco BISA). **Integración
+  real desde 2026-09-10** en 10.1.1.88 — credenciales SIP reales (reusadas de
+  `cessa-laravel`), autenticación (`_obtener_token()`) confirmada contra
+  `sip.mc4.com.bo`. Falta todavía probar `generar_qr()` de punta a punta
+  (generar un QR real y confirmarlo pagado).
 - **Consulta de deuda** (`services/deuda_client.py`): **integración real**
-  (desde 2026-09-07) contra `GET /v1/consulta/cliente` del SIIC — mismo
-  endpoint y credenciales que usa `cessa-laravel` en producción
-  (`CessaApiService`). No es una conexión directa a Db2.
+  (desde 2026-09-07, token corregido 2026-09-10) contra
+  `GET /v1/consulta/cliente` del SIIC — mismo endpoint y credenciales que usa
+  `cessa-laravel` en producción (`CessaApiService`). No es una conexión
+  directa a Db2.
+- **api-cobranzas-bancos** (`services/cobranzas_banco_client.py`): credenciales
+  de **test** activas en 10.1.1.88 desde 2026-09-10 (`CABISAQR` /
+  `api-cobranzas-test.bo-com-assec.net`, a propósito no producción —
+  autenticación OAuth confirmada). Falta probar `asegurar_caja_abierta()` /
+  `crear_transaccion()` / `pagar_transaccion_propia()` de punta a punta con un
+  cobro real (necesita un cliente con deuda real pendiente, no Bs. 0).
 
 Para desarrollar sin credenciales reales, `services/fakes.py` trae
 `FakeMC4Client`/`FakeDeudaClient` (deuda inventada pero estable por código de
