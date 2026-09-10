@@ -178,4 +178,38 @@ API_KEY_CESSA_LARAVEL = env("API_KEY_CESSA_LARAVEL", default="")
 # intervención de un supervisor/administrador (ver apps/cobranza/horario.py).
 # Horas 0-23, real de CESSA todavía sin confirmar -- ajustar por entorno.
 CAJA_HORARIO_INICIO = env.int("CAJA_HORARIO_INICIO", default=8)
+
+# Django, por defecto, con DEBUG=False solo manda los 500 sin capturar a
+# ADMINS por email (AdminEmailHandler) -- si eso no está configurado (como
+# acá), el error se pierde sin dejar ningún rastro, ni siquiera en el log de
+# gunicorn. Se sobreescribe para que todo lo que llegue a nivel ERROR (o más)
+# -- en particular 'django.request', que es donde Django loguea cada 500 con
+# su traceback completo -- vaya siempre a stderr, sin el filtro
+# require_debug_true del logging por defecto. gunicorn.service ya redirige
+# stderr a /var/log/cobranza-cessa/gunicorn-error.log.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "WARNING",
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+    },
+}
 CAJA_HORARIO_FIN = env.int("CAJA_HORARIO_FIN", default=18)
