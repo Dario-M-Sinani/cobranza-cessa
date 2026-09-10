@@ -159,6 +159,16 @@ class SiicDeudaClient(DeudaClientInterface):
 
         body = _reparar_codificacion_recursivo(body)
 
+        # 401/403 es SIIC rechazando el token configurado, no "no existe el
+        # abonado" -- antes caía en el `body.get("error")` de abajo y se
+        # reportaba como ClienteNoEncontradoError (404), escondiendo un
+        # problema real de credenciales detrás de un resultado esperado.
+        if response.status_code in (401, 403):
+            raise DeudaClientError(
+                f"consulta-deuda {codigo_externo}: SIIC rechazó las credenciales configuradas "
+                f"(HTTP {response.status_code}: {body})"
+            )
+
         if body.get("error") or not body.get("nro_cliente"):
             raise ClienteNoEncontradoError(f"No se encontró ningún abonado con el número {codigo_externo}.")
 

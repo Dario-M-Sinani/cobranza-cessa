@@ -6,7 +6,12 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from services.deuda_client import DeudaClientError, SiicDeudaClient, _reparar_codificacion
+from services.deuda_client import (
+    ClienteNoEncontradoError,
+    DeudaClientError,
+    SiicDeudaClient,
+    _reparar_codificacion,
+)
 
 
 def _response(json_body, status_code=200):
@@ -94,6 +99,22 @@ class TestSiicDeudaClient:
             mock_get.return_value = _response({"nro_cliente": ""})
             with pytest.raises(DeudaClientError):
                 cliente.consultar_deuda("999")
+
+    def test_401_no_se_confunde_con_cliente_no_encontrado(self):
+        """Un token inválido/vencido también llega como 4xx con body JSON
+        parseable (`{"error": "Unauthorized", "code": 401}`) -- misma forma
+        que "cliente no encontrado", pero es un problema de credenciales, no
+        un resultado de negocio esperado. Caso real: 2026-09-10, token
+        vencido en producción devolvía 404 "no encontrado" en vez de
+        reportar el fallo de autenticación. Debe levantar DeudaClientError
+        (502) pero NO ClienteNoEncontradoError (404)."""
+        cliente = SiicDeudaClient(base_url="https://siic.example", token="x")
+        with patch("services.deuda_client.requests.get") as mock_get:
+            mock_get.return_value = _response({"error": "Unauthorized", "code": 401}, status_code=401)
+            with pytest.raises(DeudaClientError) as exc_info:
+                cliente.consultar_deuda("153896")
+
+        assert not isinstance(exc_info.value, ClienteNoEncontradoError)
 
     def test_repara_nombre_utf8_doble_codificado(self):
         """Caso real reportado 2026-09-07: "SIÑANI DURAN JHAMINA NADIR"
