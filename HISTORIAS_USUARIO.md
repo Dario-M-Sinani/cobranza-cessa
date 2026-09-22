@@ -178,6 +178,115 @@ siempre" cuando se construya efectivo/multi-forma en la Épica D).
 
 ---
 
+### Nota de sesión 2026-09-16 — certbot bloqueado, diagnóstico hecho, en curso el cambio a DNS-01
+
+Contexto para retomar: se intentó emitir el certificado HTTPS para
+`test01.cessa.com.bo` (`10.1.1.88`, NAT público `200.87.9.163:80`) con
+`certbot --nginx` (challenge HTTP-01) y siempre falla con `Timeout during
+connect (likely firewall problem)`.
+
+Diagnóstico completo (detalle técnico en README §"HTTPS / certbot"):
+nginx y el servidor están bien (sin reglas de `iptables`, `curl` directo a
+`200.87.9.163` responde el sitio real); con `tcpdump` en el puerto 80
+durante un `certbot --dry-run` real se confirmó que **no llega ningún SYN**
+de los validadores de Let's Encrypt -- el bloqueo está en el router/firewall
+que hace el port-forward hacia `10.1.1.88`, o en el ISP, no en el servidor.
+Pendiente que quien administra ese equipo revise la regla.
+
+Mientras tanto, como el dominio `cessa.com.bo` está en Cloudflare, se decidió
+cambiar a challenge **DNS-01** con `certbot-dns-cloudflare` (evita depender
+del puerto 80 y mantiene la renovación automática). Falta: generar el API
+Token de Cloudflare (permisos `Zone:DNS:Edit` + `Zone:Zone:Read`, acotado a
+la zona `cessa.com.bo`), instalar el plugin en `10.1.1.88` y correr el
+`--dry-run`. Ver pasos exactos en README.
+
+### Nota de sesión 2026-09-17 — SSL habilitado en el origin con cert Origin CA de Cloudflare
+
+Cambio de enfoque respecto a la nota anterior: en vez de certbot (DNS-01),
+se generó un certificado **Origin CA de Cloudflare** para `*.cessa.com.bo`
+(válido hasta 2041) desde el dashboard de Cloudflare. Se instaló en
+`10.1.1.88`:
+
+- Cert/key en `/etc/nginx/ssl/cessa-origin.{pem,key}` (644/600, root:root,
+  no se commitean al repo).
+- `deploy/nginx.conf` actualizado: el server block de `cobranza-cessa` ahora
+  tiene `listen 443 ssl;` además del `listen 80;`, apuntando a ese cert/key.
+  Ya desplegado en el servidor (`/etc/nginx/sites-available/cobranza-cessa`,
+  con backup del archivo anterior al lado, `.bak-<timestamp>`), `nginx -t` ok,
+  `systemctl reload nginx` hecho. Confirmado con `openssl s_client` y `curl`
+  contra `200.87.9.163:443` que responde con el cert correcto (HTTP 200).
+
+**Pendiente, no es de código:**
+
+1. **NAT del puerto 443** -- el port-forward público hoy solo existe para el
+   80 (`200.87.9.163:80 -> 10.1.1.88:80`). Falta que quien administra la red
+   de CESSA agregue el mismo NAT para el 443. (La prueba de arriba se hizo
+   desde una máquina dentro de la red de CESSA -- mismo caso que el
+   diagnóstico de certbot, donde "redes más cercanas" sí llegaban aunque
+   internet real no. No confirma alcance público real todavía.)
+2. **Proxy de Cloudflare** -- el registro DNS de `test01.cessa.com.bo` hoy
+   resuelve directo a `200.87.9.163` (DNS-only / nube gris, confirmado con
+   `nslookup ... 1.1.1.1`), no está proxiado. Un cert Origin CA **no es de
+   confianza pública** -- solo sirve para el tramo Cloudflare-edge <->
+   origin. Para que esto realmente sirva HTTPS a los usuarios hay que activar
+   el proxy (nube naranja) en Cloudflare para ese registro, y poner el modo
+   SSL/TLS en **Full** o **Full (strict)** (nunca "Flexible", porque el
+   origin ya sirve HTTPS real).
+3. Una vez con proxy naranja + NAT 443, evaluar si conviene forzar redirect
+   `http -> https` en el server block (hoy conviven los dos `listen` sin
+   redirect, a propósito, para no romper accesos internos por IP/HTTP
+   mientras se confirma lo anterior).
+
+**Actualización misma fecha -- NAT y proxy ya activados, pero sigue sin
+cerrar (error 522):**
+
+Se agregaron la regla NAT del 443 en el firewall (Juniper SRX, gateway
+`10.1.1.1` de la red de CESSA -- identificado por el banner "Juniper Web
+Device Manager" en `http://10.1.1.1/`, J-Web) y se activó el proxy de
+Cloudflare (nube naranja) para `test01.cessa.com.bo`. Confirmado con
+`nslookup test01.cessa.com.bo 1.1.1.1`/`8.8.8.8`: el dominio ya resuelve a
+IPs de Cloudflare (`104.21.x.x`/`172.67.x.x` + IPv6), no a la IP pública
+directa -- el proxy sí está prendido.
+
+Pero pedir `https://test01.cessa.com.bo/` (forzando resolución a una IP de
+Cloudflare con `curl --resolve`, para asegurar que la request pasa por el
+proxy) devuelve **`522 Connection timed out`**, generado por Cloudflare
+mismo (`Server: cloudflare`, con `CF-RAY`) -- es decir, Cloudflare recibe la
+conexión del cliente pero no logra conectar al origin (`200.87.9.163:443`)
+dentro de su propio timeout. El puerto 80 vía Cloudflare no sirve como
+prueba alternativa: devuelve un 301 a `https://` generado por el propio
+Cloudflare (config "Always Use HTTPS"), sin siquiera tocar el origin.
+
+Se descartó que el problema esté del lado de `10.1.1.88` (mismo patrón que
+el diagnóstico de certbot del punto anterior, repetido para confirmar que no
+cambió nada ahí):
+
+- `ufw`: `inactive`; `iptables` (INPUT/FORWARD/OUTPUT): policy `ACCEPT`, sin
+  reglas; `nft list ruleset`: vacío -- no hay firewall local bloqueando.
+- nginx: `nginx -t` ok, `systemctl` `active`, un solo vhost habilitado
+  (`cobranza-cessa`; el `default` de Ubuntu sigue deshabilitado), escuchando
+  en `0.0.0.0:80` y `0.0.0.0:443` (`ss -tlnp`), cert/key legibles, sin errores
+  en `/var/log/nginx/error.log`. Pedido local a `127.0.0.1` con
+  `Host: test01.cessa.com.bo` responde `200` tanto en 80 como en 443.
+
+**Conclusión:** el corte está específicamente en el tramo Cloudflare-edge -> 
+`200.87.9.163:443` -> NAT -> `10.1.1.88:443` -- no en el servidor. Mismo tipo
+de síntoma que el bloqueo de los validadores de Let's Encrypt en el puerto 80
+(SYN de "internet real" no llega, tráfico de redes más cercanas sí). Falta
+que quien administra el Juniper revise, en la regla NAT/destination-NAT del
+443 recién creada:
+
+1. Que la regla esté completa (protocolo `tcp`, puerto destino `443`, IP
+   interna `10.1.1.88`, puerto interno `443`) y no sea una copia a medias de
+   la regla del 80.
+2. Que exista (o se haya clonado) la **security policy** que permite el
+   tráfico ya traducido -- en SRX el destination-NAT y el policy que lo deja
+   pasar son configuraciones separadas.
+3. Si hay algún screen/IPS/anti-flood o geo-block activo, que no esté
+   descartando los SYN entrantes de los rangos de IP de Cloudflare
+   (publicados en `https://www.cloudflare.com/ips/`) -- ya pasó algo similar
+   con las IPs de los validadores de Let's Encrypt.
+
 ## Orden sugerido para arrancar a construir
 
 No es una decisión tomada, es una propuesta a validar con vos (pregunta 1 de

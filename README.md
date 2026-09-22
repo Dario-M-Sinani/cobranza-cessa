@@ -266,6 +266,81 @@ URL pública, el único cambio del lado `cessa-laravel` es apuntar
 `COBRANZAS_GATEWAY_BASE_URL`/`COBRANZAS_GATEWAY_API_KEY` ahí -- el código ya
 está listo para eso, no hace falta tocar nada más.
 
+### HTTPS / certbot -- diagnóstico 2026-09-16
+
+Esa exposición pública ya existe: `test01.cessa.com.bo` (DNS en Cloudflare)
+resuelve a `200.87.9.163`, con NAT/port-forward `200.87.9.163:80 →
+10.1.1.88:80` (nginx real respondiendo ahí -- confirmado con `curl`, sirve el
+build de `cobranza-cessa-frontend`). Pero `certbot --nginx` (challenge
+HTTP-01) falla siempre con:
+
+```
+Detail: 200.87.9.163: Fetching http://test01.cessa.com.bo/.well-known/acme-challenge/...:
+Timeout during connect (likely firewall problem)
+```
+
+**Diagnóstico confirmado en el servidor** (no es nginx ni el servidor
+Linux): `iptables -L` en `10.1.1.88` está vacío (policy ACCEPT, sin reglas),
+y corriendo `tcpdump` en el puerto 80 durante un `certbot ... --dry-run` real,
+**no llega ni un solo paquete SYN** desde los validadores de Let's Encrypt.
+O sea, la conexión nunca pasa del router/firewall que hace el NAT hacia
+`10.1.1.88` (o del ISP) -- algo ahí filtra conexiones entrantes desde IPs de
+internet "reales" aunque tráfico desde redes más cercanas sí llega y nginx
+responde bien. Pendiente de quien administra ese router/firewall: revisar la
+regla de port-forward del 80 por restricciones de IP origen/geo-bloqueo o
+protección anti-flood que esté descartando los SYN antes de que lleguen al
+servidor.
+
+**Camino elegido para no depender de esa reja mientras se resuelve**:
+challenge **DNS-01** con el plugin `certbot-dns-cloudflare` (el dominio ya
+está en Cloudflare, permite automatizar creación/borrado del TXT vía API
+Token, así que la renovación automática sigue funcionando sin intervención
+manual y sin necesitar el puerto 80 alcanzable desde internet). Pasos:
+
+1. Crear un API Token en Cloudflare (perfil → API Tokens → plantilla "Edit
+   zone DNS"), permisos `Zone:DNS:Edit` + `Zone:Zone:Read`, acotado a la zona
+   `cessa.com.bo` únicamente.
+2. En `10.1.1.88`: `sudo apt install python3-certbot-dns-cloudflare`.
+3. Guardar el token en `/root/.secrets/cloudflare.ini` (`chmod 600`,
+   `dns_cloudflare_api_token = <token>`) -- **nunca commitear ese archivo ni
+   el token a este repo**.
+4. `sudo certbot certonly --dns-cloudflare --dns-cloudflare-credentials
+   /root/.secrets/cloudflare.ini -d test01.cessa.com.bo --dry-run` primero;
+   si pasa, repetir sin `--dry-run` para el certificado real.
+5. Configurar el bloque `listen 443 ssl` en `deploy/nginx.conf` apuntando a
+   los certs emitidos y recargar nginx. La renovación queda automática vía el
+   timer systemd que instala `certbot` (`certbot.timer`), sin volver a tocar
+   el puerto 80.
+
+**Actualización 2026-09-17 -- se abandonó este plan de certbot, en uso un
+cert Origin CA de Cloudflare:**
+
+En vez de DNS-01, se generó desde el dashboard de Cloudflare un certificado
+**Origin CA** para `*.cessa.com.bo` (válido hasta 2041) y se instaló
+directo en `10.1.1.88` (`/etc/nginx/ssl/cessa-origin.{pem,key}`, no
+commiteado). `deploy/nginx.conf` ya tiene el `listen 443 ssl` apuntando a
+ese cert/key. Ventaja sobre certbot: no depende de que el puerto 80 sea
+alcanzable desde internet para emitir/renovar (el cert dura hasta 2041, sin
+renovación automática que mantener).
+
+Importante: un cert Origin CA **no es de confianza pública** -- solo sirve
+para el tramo Cloudflare-edge ↔ origin, con el proxy de Cloudflare (nube
+naranja) activo y el modo SSL/TLS en **Full** o **Full (strict)** (nunca
+"Flexible"). Un navegador conectando directo a la IP, sin pasar por
+Cloudflare, va a marcar el cert como no confiable -- es esperado.
+
+**Estado actual (2026-09-17), con nube naranja y NAT del 443 ya activados**:
+Cloudflare devuelve `522 Connection timed out` al intentar llegar al origin
+por el 443 -- confirmado que no es nginx ni el servidor (mismo diagnóstico
+de arriba: `ufw`/`iptables`/`nft` vacíos, nginx sirve `200` en local en 80 y
+443). El corte sigue estando en el firewall (Juniper SRX en `10.1.1.1`) o
+más allá -- pendiente revisar que la regla NAT del 443 esté completa, que
+tenga su security policy asociada, y que ningún screen/IPS/geo-block esté
+descartando los SYN de los rangos de IP de Cloudflare (mismo síntoma que el
+bloqueo de los validadores de Let's Encrypt descrito arriba). Detalle
+completo de las pruebas en `HISTORIAS_USUARIO.md`, notas de sesión
+2026-09-17.
+
 ## Próximos pasos
 
 - Credenciales reales de MC4/SIP (consulta de deuda ya conectada a producción desde 2026-09-07)

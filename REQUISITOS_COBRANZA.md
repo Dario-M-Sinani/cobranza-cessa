@@ -144,7 +144,7 @@ su alcance real:
 
 ## 9. Infraestructura y despliegue
 
-- [ ] VPS Ubuntu propio (nginx + gunicorn + systemd + certbot) — mencionado en README, no hecho todavía
+- [x] Servidor Ubuntu (nginx + gunicorn + systemd) — no un VPS externo, corre en `10.1.1.88` (red interna CESSA), ver "Despliegue en producción" en README
 - [ ] PostgreSQL de producción (hoy solo probado con sqlite de smoke-test y local)
 - [ ] Redis + Celery worker/beat corriendo como servicios persistentes (systemd units)
 - [ ] Variables de entorno de producción (`.env` real, `CORS_ALLOWED_ORIGINS` apuntando al dominio final, no a `localhost:5174`)
@@ -157,7 +157,7 @@ su alcance real:
 - [ ] 2FA (ver §1)
 - [ ] Rate limiting / bloqueo por intentos fallidos de login
 - [ ] Revisión de CORS y hosts permitidos para producción
-- [ ] HTTPS end-to-end (certbot, mencionado en README, no confirmado hecho)
+- [ ] HTTPS end-to-end — certbot con challenge HTTP-01 falla (el router/firewall que hace NAT hacia `10.1.1.88:80` bloquea las conexiones entrantes reales, diagnóstico 2026-09-16 en README §"HTTPS / certbot"); en curso el cambio a DNS-01 vía `certbot-dns-cloudflare`
 
 ## 11. Datos de prueba / demo
 
