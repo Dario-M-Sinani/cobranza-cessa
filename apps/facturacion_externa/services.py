@@ -12,12 +12,24 @@ from django.utils import timezone
 
 from services.cobranzas_banco_client import (
     CobranzasBancoError,
+    CobranzasBancoRequestError,
     construir_detalle,
     construir_documento,
     get_cobranzas_banco_client,
 )
 
 from .models import SolicitudLiquidacion
+
+# Texto exacto que devuelve api-cobranzas-bancos cuando /pagar-otro-documento se reintenta sobre
+# una transacción que ya se pagó con éxito en un intento anterior (ver hallazgo de sesión
+# 2026-09-22: el POST de cessa-laravel se cae en la RESPUESTA -- ej. timeout de Cloudflare entre
+# test01.cessa.com.bo y este server -- pero el pago ya se había procesado acá; el reintento
+# automático que sigue entonces choca con este mensaje en vez de encontrar éxito). No hay un
+# código HTTP/campo separado para distinguir este caso del resto de los rechazos de negocio, así
+# que se matchea el texto tal cual lo manda la API real -- mismo criterio que ya usa el resto de
+# esta integración (y CessaApiService del lado de cessa-laravel) para reconocer rechazos
+# específicos de estos sistemas legacy.
+_MENSAJE_YA_PAGADA = 'ya ha sido pagada'
 
 
 def liquidar_solicitud(solicitud: SolicitudLiquidacion) -> SolicitudLiquidacion:
@@ -51,7 +63,14 @@ def liquidar_solicitud(solicitud: SolicitudLiquidacion) -> SolicitudLiquidacion:
             numero_documento=solicitud.numero_orden_originante or solicitud.alias,
             fecha_pago=solicitud.fecha_pago,
         )
-        cliente.pagar_transaccion(uuid, detalle, documento)
+        try:
+            cliente.pagar_transaccion(uuid, detalle, documento)
+        except CobranzasBancoRequestError as exc:
+            # Ya se pagó en un intento anterior (ver _MENSAJE_YA_PAGADA arriba) -- no es un
+            # rechazo real, solo falta completar el paso que sigue (traer el comprobante).
+            if _MENSAJE_YA_PAGADA not in str(exc):
+                raise
+
         comprobante = cliente.obtener_comprobante_pdf(uuid)
 
         solicitud.estado = SolicitudLiquidacion.Estado.FACTURADO
