@@ -199,6 +199,36 @@ pytest
   `crear_transaccion()` / `pagar_transaccion_propia()` de punta a punta con un
   cobro real (necesita un cliente con deuda real pendiente, no Bs. 0).
 
+### Mapa de los dominios `*.bo-com-assec.net` (reverse-proxy nginx, relevado 2026-09-22)
+
+Relevado de las configs nginx del proxy que publica las APIs del SIIC. Upstreams internos (IP:puerto) no se commitean -- están en las configs nginx del proxy; desde la
+red interna de CESSA se llega directo a cada upstream; hay que mandar el
+header `Host` del vhost y aceptar certificado no confiable (`curl -k`).
+
+| Dominio público | Notas |
+|---|---|
+| `api-siic-prod-1` | SIIC prod (el que usa `SIIC_DEUDA_BASE_URL` hoy) |
+| `api-siic-prod-2` | responde un frontend (Vite), no la API |
+| `api-siic-prod-3` | SIIC prod (otra instancia) |
+| `api-siic-test` | **SIIC test** -- acepta el mismo token que prod |
+| `api-cobranzas-test` | sandbox de api-cobranzas-bancos (`COBRANZAS_BANCO_BASE_URL` hoy) |
+| `api-cobranzas-prod-6002` | api-cobranzas-bancos **prod** (el nombre real, no "prod-1") |
+| `cobranzas-web-test` | interfaz web del sandbox de cobranzas |
+| `api-gateway-test` / `-prod` | piden auth propia (401) |
+
+**Gotcha**: por el dominio público, `api-siic-test`, `api-siic-prod-2/3` y
+`api-cobranzas-prod-6002` hoy devuelven el banner de cobranzas-test (`Lumen
+(8.3.4) ... TEST`) -- sus vhosts no están activos en el proxy y caen al
+`default_server`. Directo al upstream sí responden lo correcto. Para usarlos
+por dominio hay que pedir a quien administra ese proxy que los habilite en
+`sites-enabled`.
+
+**Regla de pruebas de facturación**: la deuda que se manda a pagar tiene que
+salir del mismo ambiente que la paga -- SIIC test con cobranzas test, SIIC
+prod con cobranzas prod. Mezclarlos deja la Transacción `PAGADA` pero sin
+comprobante (`No existe registro en CFC510`, ver nota de sesión 2026-09-22 en
+`HISTORIAS_USUARIO.md`).
+
 Para desarrollar sin credenciales reales, `services/fakes.py` trae
 `FakeMC4Client`/`FakeDeudaClient` (deuda inventada pero estable por código de
 cliente -- nombre y monto varían, no siempre es la misma; QR que se marca

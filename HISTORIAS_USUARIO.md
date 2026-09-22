@@ -287,6 +287,62 @@ que quien administra el Juniper revise, en la regla NAT/destination-NAT del
    (publicados en `https://www.cloudflare.com/ips/`) -- ya pasó algo similar
    con las IPs de los validadores de Let's Encrypt.
 
+### Nota de sesión 2026-09-22 — facturación QR llega a PAGADA, trabada en el comprobante (CFC510); causa probable: mezcla de ambientes SIIC prod / cobranzas test
+
+Objetivo de la sesión: llevar una `SolicitudLiquidacion` a `FACTURADO` con
+comprobante real, probando directo en la red interna (sin depender de la ruta
+pública Hostinger → Cloudflare → `test01.cessa.com.bo`, que sigue con 502/522
+aparte, ver nota del 2026-09-17).
+
+**Hecho:**
+
+- Fix de idempotencia en `liquidar_solicitud()` (commit `e9cdad8`): si
+  `/pagar-otro-documento` responde "ya ha sido pagada" (reintento después de
+  que se perdió la respuesta de un pago exitoso), se sigue directo a traer el
+  comprobante en vez de dejar la solicitud en `ERROR` para siempre.
+- Pago simulado (sin dinero real, vía `simular_pago_qr.php` de cessa-laravel)
+  para el cliente **178894**: la Transacción quedó `PAGADA` en
+  `api-cobranzas-test` (verificado con `GET /v1/transacciones/{uuid}`).
+- **Bloqueo**: `GET /v1/transacciones/{uuid}/documentos` (pdf y json) falla con
+  `No existe registro en CFC510 [(cliente, comprobante) = (178894, 892140)]`.
+  Igual con los dos aliases de prueba (`CESSA-SIM-20260922125619-MSGC`, 35
+  meses; `CESSA-SIM-20260922145238-E2BM`, 5 meses) -- siempre se pagan
+  primero los meses más antiguos, así que 892140 (nov/2023) siempre encabeza
+  el detalle.
+
+**Hallazgo -- sí existe un SIIC de test** (antes se asumía que no). Revisando
+las configs nginx del reverse-proxy `*.bo-com-assec.net` (tabla completa en
+README §"Integraciones externas"): `api-siic-test` apunta a un upstream propio,
+y el mismo `SIIC_DEUDA_TOKEN` de prod funciona ahí. El cliente 178894 tiene 35
+ítems (Bs 717) en SIIC **prod**, pero **0 ítems en SIIC test**. Lo más probable
+es que el pago de prueba de 35 meses (MSGC) haya consumido su deuda en la base
+de test (SIIC test y cobranzas test compartirían base).
+
+**Diagnóstico:** el `.env` de 10.1.1.88 toma la deuda de SIIC **prod**
+(`SIIC_DEUDA_BASE_URL=https://api-siic-prod-1...`) y la paga en cobranzas
+**test** -- se mezclan ambientes. El detalle mandado a pagar tiene que salir
+del mismo ambiente que lo paga.
+
+**Pendiente para la próxima prueba (se hará desde otra máquina):**
+
+1. Usar un cliente que **hoy** tenga deuda en SIIC test (el usuario ya tiene
+   uno identificado) -- 178894 ya no sirve en test, su deuda quedó en 0.
+2. Durante la prueba, tomar la deuda de SIIC test: `SIIC_DEUDA_BASE_URL`
+   apuntando directo al upstream de `api-siic-test` con `Host:
+   api-siic-test.bo-com-assec.net` (por el dominio público, `api-siic-test`
+   hoy cae al vhost default y responde cobranzas-test, ver README), o armar el
+   `detalle` de la `SolicitudLiquidacion` a mano desde esa respuesta en Django
+   shell.
+3. **Pagar pocos meses** (1-2), no todo, para no consumir la deuda de test de
+   una sola vez y poder repetir la prueba.
+4. Correr `liquidar_solicitud()` y verificar comprobante PDF/JSON. Si con datos
+   coherentes de test igual falla CFC510, recién ahí sospechar de un paso
+   faltante (endpoint de emisión) y preguntar a quien administra
+   `api-cobranzas-bancos`.
+5. **Limpieza**: aliases MSGC/E2BM (`Recibo` en cessa-laravel +
+   `SolicitudLiquidacion` acá) y borrar `simular_pago_qr.php` /
+   `forzar_facturacion.php` de `cessa-laravel/public/` en Hostinger.
+
 ## Orden sugerido para arrancar a construir
 
 No es una decisión tomada, es una propuesta a validar con vos (pregunta 1 de
