@@ -209,8 +209,24 @@ class TestEndpointLiquidar:
         respuesta = cliente.post("/api/externo/recibos-web/liquidar/", self._payload(), format="json")
 
         assert respuesta.status_code == 200
-        assert respuesta.data["estado"] == "facturado"
+        assert respuesta.data["estado"] == "FACTURADO"
         assert SolicitudLiquidacion.objects.count() == 1
+
+    def test_rechazo_de_negocio_devuelve_200_con_estado_error(self, settings, monkeypatch):
+        # No 502: Cloudflare reemplaza los 502 del origen por su propia página y el motivo se pierde.
+        settings.API_KEY_CESSA_LARAVEL = "la-key-correcta"
+        monkeypatch.setattr(
+            facturacion_services, "get_cobranzas_banco_client",
+            lambda: FakeCobranzasBancoClientDeTest(falla_en_pagar=True),
+        )
+        cliente = APIClient()
+        cliente.credentials(HTTP_X_API_KEY="la-key-correcta")
+
+        respuesta = cliente.post("/api/externo/recibos-web/liquidar/", self._payload(), format="json")
+
+        assert respuesta.status_code == 200
+        assert respuesta.data["estado"] == "ERROR"
+        assert "rechazó el pago" in respuesta.data["error"]
 
     def test_reenvio_del_mismo_alias_no_duplica(self, settings, monkeypatch):
         settings.API_KEY_CESSA_LARAVEL = "la-key-correcta"

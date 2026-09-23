@@ -49,3 +49,10 @@ class SolicitudLiquidacionSalidaSerializer(serializers.ModelSerializer):
 
     def get_comprobante_disponible(self, obj):
         return obj.comprobante_pdf is not None
+
+    def to_representation(self, instance):
+        # cessa-laravel (`FacturacionRecibo::procesar()`) compara contra 'FACTURADO' en
+        # mayúsculas; los valores internos del modelo van en minúsculas.
+        datos = super().to_representation(instance)
+        datos["estado"] = datos["estado"].upper()
+        return datos

@@ -40,8 +40,11 @@ class LiquidarReciboExternoView(APIView):
 
         solicitud = liquidar_solicitud(solicitud)
 
-        codigo = status.HTTP_200_OK if solicitud.estado == SolicitudLiquidacion.Estado.FACTURADO else status.HTTP_502_BAD_GATEWAY
-        return Response(SolicitudLiquidacionSalidaSerializer(solicitud).data, status=codigo)
+        # Siempre 200, también si quedó en ERROR: el resultado de negocio va en `estado`/`error`.
+        # Antes un rechazo devolvía 502, y Cloudflare (delante de test01.cessa.com.bo) reemplaza
+        # cualquier 502 del origen por su propia página "error code: 502" -- cessa-laravel nunca
+        # llegaba a ver el motivo real (hallazgo 2026-09-23).
+        return Response(SolicitudLiquidacionSalidaSerializer(solicitud).data, status=status.HTTP_200_OK)
 
 
 class ConsultarLiquidacionView(APIView):
