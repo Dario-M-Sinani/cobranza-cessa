@@ -89,13 +89,23 @@ def liquidar_solicitud(solicitud: SolicitudLiquidacion) -> SolicitudLiquidacion:
             cliente.pagar_transaccion(uuid, detalle, documento)
         except CobranzasBancoRequestError as exc:
             if _MENSAJE_TRANSACCION_EXPIRADA in str(exc):
-                # Transacción de un día anterior: se crea una nueva y se paga con esa. Si la vieja
-                # en realidad sí se había pagado (respuesta perdida), el SIIC rechaza esta con
-                # "la deuda ya ha sido pagada" -- nunca hay doble cobro.
-                uuid = cliente.crear_transaccion()
-                solicitud.cobranzas_uuid = uuid
-                solicitud.save(update_fields=["cobranzas_uuid"])
-                cliente.pagar_transaccion(uuid, detalle, documento)
+                # Transacción de un día anterior (api-cobranzas-bancos valida la fecha antes que
+                # el estado, así que no dice si ya estaba pagada). Se pregunta el estado real:
+                estado = cliente.obtener_estado_transaccion(uuid)
+                if estado == "EN_TRANSACCION":
+                    raise CobranzasBancoRequestError(
+                        f"La transacción {uuid} quedó EN_TRANSACCION (pago a medio procesar) -- "
+                        "revisar a mano en api-cobranzas-bancos antes de reintentar."
+                    ) from exc
+                if estado != "PAGADA":
+                    # Nunca se pagó: se crea una nueva y se paga con esa. Si la deuda igual figura
+                    # pagada en el SIIC, rechaza con "ya ha sido pagada" -- nunca hay doble cobro.
+                    uuid = cliente.crear_transaccion()
+                    solicitud.cobranzas_uuid = uuid
+                    solicitud.save(update_fields=["cobranzas_uuid"])
+                    cliente.pagar_transaccion(uuid, detalle, documento)
+                # PAGADA: ya se pagó otro día (falló después, al traer el comprobante) -- se sigue
+                # directo al comprobante con esa misma transacción.
             # Ya se pagó en un intento anterior (ver _MENSAJE_YA_PAGADA arriba) -- no es un
             # rechazo real, solo falta completar el paso que sigue (traer el comprobante).
             elif _MENSAJE_YA_PAGADA not in str(exc):

@@ -183,6 +183,29 @@ class TestFlujoDeCobro:
 
         assert pdf == b"%PDF-1.4"
 
+    def test_comprobante_de_otro_dia_usa_la_ruta_de_reimpresion(self):
+        cliente = _cliente()
+        with patch("services.cobranzas_banco_client.requests.post") as mock_post,                 patch("services.cobranzas_banco_client.requests.request") as mock_request,                 patch("services.cobranzas_banco_client.requests.get") as mock_get:
+            mock_post.return_value = _response({"access_token": "tok"})
+            mock_request.return_value = _response(
+                {"error": "Usted no está autorizado para acceder a los comprobantes de la transacción ya que la transacción se realizó en fecha 22/09/2026."},
+                status_code=403,
+            )
+            mock_get.return_value = _response(status_code=200, content=b"%PDF-1.4 reimpreso")
+
+            pdf = cliente.obtener_comprobante_pdf("uuid-1")
+
+        assert pdf == b"%PDF-1.4 reimpreso"
+        assert mock_get.call_args.args[0] == "https://cobranzas.example/transacciones/uuid-1/documentos"
+
+    def test_obtener_estado_transaccion(self):
+        cliente = _cliente()
+        with patch("services.cobranzas_banco_client.requests.post") as mock_post,                 patch("services.cobranzas_banco_client.requests.request") as mock_request:
+            mock_post.return_value = _response({"access_token": "tok"})
+            mock_request.return_value = _response({"uuid": "uuid-1", "estado": "PAGADA"})
+
+            assert cliente.obtener_estado_transaccion("uuid-1") == "PAGADA"
+
     def test_obtener_comprobante_json_devuelve_el_dict(self):
         cliente = _cliente()
         with patch("services.cobranzas_banco_client.requests.post") as mock_post, \

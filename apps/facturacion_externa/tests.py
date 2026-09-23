@@ -141,6 +141,46 @@ class TestLiquidarSolicitud:
         assert pagados == ["uuid-test"]
         assert solicitud.cobranzas_uuid == "uuid-test"
 
+    def _fake_con_transaccion_de_ayer(self, estado_de_ayer):
+        fake = FakeCobranzasBancoClientDeTest()
+        fake.pagados = []
+
+        def pagar(uuid, detalle, documento):
+            fake.llamadas_pagar += 1
+            if uuid == "uuid-de-ayer":
+                raise CobranzasBancoRequestError("La transacción ha expirado, ésta ha sido creada en fecha y hora ...")
+            fake.pagados.append(uuid)
+
+        fake.pagar_transaccion = pagar
+        fake.obtener_estado_transaccion = lambda uuid: estado_de_ayer
+        return fake
+
+    def test_expirada_pero_ya_pagada_ayer_no_crea_otra_y_trae_el_comprobante(self, monkeypatch):
+        fake = self._fake_con_transaccion_de_ayer("PAGADA")
+        monkeypatch.setattr(facturacion_services, "get_cobranzas_banco_client", lambda: fake)
+
+        solicitud = liquidar_solicitud(
+            _solicitud(estado=SolicitudLiquidacion.Estado.ERROR, cobranzas_uuid="uuid-de-ayer")
+        )
+
+        assert solicitud.estado == SolicitudLiquidacion.Estado.FACTURADO, solicitud.error
+        assert fake.llamadas_crear_transaccion == 0
+        assert fake.pagados == []
+        assert solicitud.cobranzas_uuid == "uuid-de-ayer"
+
+    def test_expirada_en_transaccion_queda_en_error_sin_crear_otra(self, monkeypatch):
+        fake = self._fake_con_transaccion_de_ayer("EN_TRANSACCION")
+        monkeypatch.setattr(facturacion_services, "get_cobranzas_banco_client", lambda: fake)
+
+        solicitud = liquidar_solicitud(
+            _solicitud(estado=SolicitudLiquidacion.Estado.ERROR, cobranzas_uuid="uuid-de-ayer")
+        )
+
+        assert solicitud.estado == SolicitudLiquidacion.Estado.ERROR
+        assert "EN_TRANSACCION" in solicitud.error
+        assert fake.llamadas_crear_transaccion == 0
+        assert solicitud.cobranzas_uuid == "uuid-de-ayer"
+
     def test_documento_manda_numero_corto_y_fecha_registro(self, monkeypatch):
         fake = FakeCobranzasBancoClientDeTest()
         documentos = []

@@ -61,6 +61,14 @@ class CobranzasBancoClientInterface(abc.ABC):
     @abc.abstractmethod
     def obtener_comprobante_json(self, uuid: str) -> dict: ...
 
+    def obtener_estado_transaccion(self, uuid: str) -> str:
+        """Estado de una Transacción (CREADA/EN_TRANSACCION/PAGADA/FALLIDA/ANULADA). Cadena
+        vacía si la implementación no lo sabe (dobles de prueba viejos)."""
+        return ""
+
+
+_MENSAJE_OTRO_DIA = "se realizó en fecha"
+
 
 def _formatear_fecha(valor) -> str:
     """Mismo fallback que FacturacionRecibo::formatearFecha() del lado
@@ -211,10 +219,32 @@ class LumenCobranzasBancoClient(CobranzasBancoClientInterface):
         if not response.ok:
             raise CobranzasBancoRequestError(f"pagar transacción (propia): {self._extraer_error(response)}")
 
-    def obtener_comprobante_pdf(self, uuid: str) -> bytes:
+    def obtener_estado_transaccion(self, uuid: str) -> str:
+        response = self._request_autenticado("get", f"/v1/transacciones/{uuid}/estado")
+        if not response.ok:
+            raise CobranzasBancoRequestError(f"consultar estado de transacción: {self._extraer_error(response)}")
+        data = response.json() or {}
+        return str(data.get("estado") or (data.get("data") or {}).get("estado") or "")
+
+    def _documentos(self, uuid: str, formato: str) -> requests.Response:
         response = self._request_autenticado(
-            "get", f"/v1/transacciones/{uuid}/documentos", params={"formato": "pdf"}
+            "get", f"/v1/transacciones/{uuid}/documentos", params={"formato": formato}
         )
+        # Con rol CAJA, /v1/.../documentos solo deja ver comprobantes de transacciones pagadas HOY
+        # ("...ya que la transacción se realizó en fecha dd/mm/aaaa"). Para una pagada otro día
+        # (reintento después de un comprobante fallido) se usa la ruta sin prefijo
+        # /transacciones/{uuid}/documentos (TransaccionController@documentos2), la que usa la
+        # propia api-cobranzas-bancos para reimprimir, sin esa restricción.
+        if not response.ok and _MENSAJE_OTRO_DIA in self._extraer_error(response):
+            response = requests.get(
+                f"{self.base_url}/transacciones/{uuid}/documentos",
+                params={"formato": formato},
+                timeout=self.timeout,
+            )
+        return response
+
+    def obtener_comprobante_pdf(self, uuid: str) -> bytes:
+        response = self._documentos(uuid, "pdf")
         if not response.ok:
             raise CobranzasBancoRequestError(f"obtener comprobante: {self._extraer_error(response)}")
         return response.content
@@ -224,9 +254,7 @@ class LumenCobranzasBancoClient(CobranzasBancoClientInterface):
         usado por cessa-laravel (ComprobanteTicketController) para armar el
         ticket imprimible; a diferencia del PDF, este nunca se persiste acá,
         se reenvía en vivo cada vez que se pide."""
-        response = self._request_autenticado(
-            "get", f"/v1/transacciones/{uuid}/documentos", params={"formato": "json"}
-        )
+        response = self._documentos(uuid, "json")
         if not response.ok:
             raise CobranzasBancoRequestError(f"obtener comprobante json: {self._extraer_error(response)}")
 
