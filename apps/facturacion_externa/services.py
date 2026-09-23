@@ -7,6 +7,8 @@ falla, la solicitud queda en ERROR con el motivo guardado, nunca vuelve a
 PENDIENTE en silencio."""
 from __future__ import annotations
 
+import hashlib
+
 from django.conf import settings
 from django.utils import timezone
 
@@ -30,6 +32,26 @@ from .models import SolicitudLiquidacion
 # esta integración (y CessaApiService del lado de cessa-laravel) para reconocer rechazos
 # específicos de estos sistemas legacy.
 _MENSAJE_YA_PAGADA = 'ya ha sido pagada'
+
+# api-cobranzas-bancos rechaza pagar una Transacción creada otro día ("La transacción ha expirado,
+# ésta ha sido creada en fecha y hora ..." -- TransaccionController@pagarOtroDocumento, se valida
+# antes que el estado). Un reintento al día siguiente de un intento fallido necesita una nueva.
+_MENSAJE_TRANSACCION_EXPIRADA = 'ha expirado'
+
+# Largo máximo de `documento.numero` en el SIIC (`'documento.numero' => 'required|max:20'` en
+# CajaController@pagarOtroDocumento, columna TCNN3051.CNN6NRO).
+_MAX_NUMERO_DOCUMENTO = 20
+
+
+def numero_documento_para(solicitud: SolicitudLiquidacion) -> str:
+    """Número de documento (referencia del cobro) que se registra en el SIIC. Usa el número de
+    orden del sistema de origen o el alias si entran en 20 caracteres; si no (ej. los alias
+    `CESSA-SIM-20260922125619-MSGC` de cessa-laravel, 29), deriva uno estable del alias -- el mismo
+    en cada reintento, rastreable desde el admin porque siempre se puede recalcular."""
+    for candidato in (solicitud.numero_orden_originante, solicitud.alias):
+        if candidato and len(candidato) <= _MAX_NUMERO_DOCUMENTO:
+            return candidato
+    return "CW" + hashlib.sha256(solicitud.alias.encode()).hexdigest()[: _MAX_NUMERO_DOCUMENTO - 2].upper()
 
 
 def liquidar_solicitud(solicitud: SolicitudLiquidacion) -> SolicitudLiquidacion:
@@ -60,15 +82,23 @@ def liquidar_solicitud(solicitud: SolicitudLiquidacion) -> SolicitudLiquidacion:
             nro_cliente=solicitud.nro_cliente,
             monto=solicitud.monto,
             moneda=solicitud.moneda,
-            numero_documento=solicitud.numero_orden_originante or solicitud.alias,
+            numero_documento=numero_documento_para(solicitud),
             fecha_pago=solicitud.fecha_pago,
         )
         try:
             cliente.pagar_transaccion(uuid, detalle, documento)
         except CobranzasBancoRequestError as exc:
+            if _MENSAJE_TRANSACCION_EXPIRADA in str(exc):
+                # Transacción de un día anterior: se crea una nueva y se paga con esa. Si la vieja
+                # en realidad sí se había pagado (respuesta perdida), el SIIC rechaza esta con
+                # "la deuda ya ha sido pagada" -- nunca hay doble cobro.
+                uuid = cliente.crear_transaccion()
+                solicitud.cobranzas_uuid = uuid
+                solicitud.save(update_fields=["cobranzas_uuid"])
+                cliente.pagar_transaccion(uuid, detalle, documento)
             # Ya se pagó en un intento anterior (ver _MENSAJE_YA_PAGADA arriba) -- no es un
             # rechazo real, solo falta completar el paso que sigue (traer el comprobante).
-            if _MENSAJE_YA_PAGADA not in str(exc):
+            elif _MENSAJE_YA_PAGADA not in str(exc):
                 raise
 
         comprobante = cliente.obtener_comprobante_pdf(uuid)

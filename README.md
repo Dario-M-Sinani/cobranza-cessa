@@ -223,11 +223,20 @@ header `Host` del vhost y aceptar certificado no confiable (`curl -k`).
 por dominio hay que pedir a quien administra ese proxy que los habilite en
 `sites-enabled`.
 
-**Regla de pruebas de facturación**: la deuda que se manda a pagar tiene que
-salir del mismo ambiente que la paga -- SIIC test con cobranzas test, SIIC
-prod con cobranzas prod. Mezclarlos deja la Transacción `PAGADA` pero sin
-comprobante (`No existe registro en CFC510`, ver nota de sesión 2026-09-22 en
-`HISTORIAS_USUARIO.md`).
+**Comprobante en el sandbox (`No existe registro en CFC510`)**: no se debe a
+mezclar ambientes. Revisando el código real del SIIC (`POST /v1/comprobantes`,
+`ComprobanteController`, 2026-09-23), el comprobante se arma leyendo
+`SUMINI` → `COMSAL` → `SFECABE` → `CFC510` → `FACTUI` en DB2. La biblioteca de
+test (`BKLDTA`) tiene `CFC510` incompleta; en prod (`LIBSUCDTA`) no hay un
+solo error de este tipo en los logs. El sandbox puede **pagar** pero no
+emitir el comprobante hasta que sistemas repueble `CFC510` en `BKLDTA`. Igual
+conviene que la deuda salga del mismo ambiente que la paga.
+
+**Límites del SIIC que respeta el gateway**: `documento.numero` ≤ 20
+caracteres (si el alias no entra, se deriva uno estable, `CW` + hash; ver
+`numero_documento_para()`). Una Transacción de api-cobranzas-bancos solo se
+puede pagar el mismo día en que se creó: si un reintento cae otro día, se
+crea una nueva. El SIIC exige pagar **primero la deuda más antigua**.
 
 Para desarrollar sin credenciales reales, `services/fakes.py` trae
 `FakeMC4Client`/`FakeDeudaClient` (deuda inventada pero estable por código de

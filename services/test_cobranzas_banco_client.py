@@ -257,7 +257,8 @@ class TestConstruirDocumento:
 
         assert documento == {
             "ente_id": 5, "moneda": "B", "banco_id": 7, "numero": "CESSA-WEB-1",
-            "importe": 150.5, "fecha": "20260908", "fecha_vencimiento": "20260908",
+            "importe": 150.5, "fecha": "20260908", "fecha_registro": "20260908",
+            "fecha_vencimiento": "20260908",
         }
 
     def test_moneda_usd_se_mapea_a_d(self, settings):

@@ -8,11 +8,11 @@ import pytest
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from services.cobranzas_banco_client import CobranzasBancoError, CobranzasBancoClientInterface
+from services.cobranzas_banco_client import CobranzasBancoError, CobranzasBancoClientInterface, CobranzasBancoRequestError
 
 from . import services as facturacion_services
 from .models import SolicitudLiquidacion
-from .services import liquidar_solicitud
+from .services import liquidar_solicitud, numero_documento_para
 
 
 class FakeCobranzasBancoClientDeTest(CobranzasBancoClientInterface):
@@ -119,6 +119,56 @@ class TestLiquidarSolicitud:
         assert fake.llamadas_crear_transaccion == 0  # no crea una transacción nueva
         assert solicitud.cobranzas_uuid == "uuid-de-intento-previo"
         assert solicitud.estado == SolicitudLiquidacion.Estado.FACTURADO
+
+    def test_transaccion_de_otro_dia_expirada_crea_una_nueva(self, monkeypatch):
+        fake = FakeCobranzasBancoClientDeTest()
+        pagados = []
+
+        def pagar(uuid, detalle, documento):
+            fake.llamadas_pagar += 1
+            if uuid == "uuid-de-ayer":
+                raise CobranzasBancoRequestError("La transacción ha expirado, ésta ha sido creada en fecha y hora ...")
+            pagados.append(uuid)
+
+        fake.pagar_transaccion = pagar
+        monkeypatch.setattr(facturacion_services, "get_cobranzas_banco_client", lambda: fake)
+
+        solicitud = _solicitud(estado=SolicitudLiquidacion.Estado.ERROR, cobranzas_uuid="uuid-de-ayer")
+        solicitud = liquidar_solicitud(solicitud)
+
+        assert solicitud.estado == SolicitudLiquidacion.Estado.FACTURADO, solicitud.error
+        assert fake.llamadas_crear_transaccion == 1
+        assert pagados == ["uuid-test"]
+        assert solicitud.cobranzas_uuid == "uuid-test"
+
+    def test_documento_manda_numero_corto_y_fecha_registro(self, monkeypatch):
+        fake = FakeCobranzasBancoClientDeTest()
+        documentos = []
+        fake.pagar_transaccion = lambda uuid, detalle, documento: documentos.append(documento)
+        monkeypatch.setattr(facturacion_services, "get_cobranzas_banco_client", lambda: fake)
+
+        liquidar_solicitud(_solicitud(alias="CESSA-SIM-20260922125619-MSGC"))
+
+        assert len(documentos[0]["numero"]) <= 20
+        assert documentos[0]["fecha_registro"] == documentos[0]["fecha"]
+
+
+@pytest.mark.django_db
+class TestNumeroDocumento:
+    def test_usa_numero_de_orden_si_entra(self):
+        assert numero_documento_para(_solicitud(numero_orden_originante="ORD-123")) == "ORD-123"
+
+    def test_usa_alias_si_no_hay_orden_y_entra(self):
+        assert numero_documento_para(_solicitud(alias="CESSA-WEB-1")) == "CESSA-WEB-1"
+
+    def test_alias_largo_se_deriva_estable_de_20(self):
+        solicitud = _solicitud(alias="CESSA-SIM-20260922125619-MSGC", numero_orden_originante="X" * 30)
+        numero = numero_documento_para(solicitud)
+        assert len(numero) == 20
+        assert numero.startswith("CW")
+        assert numero == numero_documento_para(solicitud)  # mismo en cada reintento
+        otro = _solicitud(alias="CESSA-SIM-20260922145238-E2BM")
+        assert numero_documento_para(otro) != numero
 
 
 @pytest.mark.django_db

@@ -127,6 +127,9 @@ def construir_documento(
         "numero": numero_documento,
         "importe": float(monto),
         "fecha": fecha,
+        # El SIIC lee `fecha_registro` (TCNN3051.CNN6FECE), no `fecha` -- api-cobranzas-bancos
+        # pasa `documento` tal cual. Se mandan las dos por compatibilidad con la app "Cobranza".
+        "fecha_registro": fecha,
         "fecha_vencimiento": fecha,
     }
 
