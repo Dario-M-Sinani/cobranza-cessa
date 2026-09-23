@@ -181,6 +181,35 @@ class TestLiquidarSolicitud:
         assert fake.llamadas_crear_transaccion == 0
         assert solicitud.cobranzas_uuid == "uuid-de-ayer"
 
+    def test_ya_pagada_por_otro_medio_informa_el_rechazo_real(self, monkeypatch):
+        fake = FakeCobranzasBancoClientDeTest()
+
+        def pagar(uuid, detalle, documento):
+            raise CobranzasBancoRequestError('pagar transacción: {"error_mensaje": "La deuda ya ha sido pagada con anterioridad"}')
+
+        fake.pagar_transaccion = pagar
+        fake.obtener_estado_transaccion = lambda uuid: "FALLIDA"
+        monkeypatch.setattr(facturacion_services, "get_cobranzas_banco_client", lambda: fake)
+
+        solicitud = liquidar_solicitud(_solicitud())
+
+        assert solicitud.estado == SolicitudLiquidacion.Estado.ERROR
+        assert "ya figura pagado por otro medio" in solicitud.error
+
+    def test_ya_pagada_por_esta_misma_transaccion_sigue_al_comprobante(self, monkeypatch):
+        fake = FakeCobranzasBancoClientDeTest()
+
+        def pagar(uuid, detalle, documento):
+            raise CobranzasBancoRequestError("La transacción no se puede completar porque ya ha sido pagada.")
+
+        fake.pagar_transaccion = pagar
+        fake.obtener_estado_transaccion = lambda uuid: "PAGADA"
+        monkeypatch.setattr(facturacion_services, "get_cobranzas_banco_client", lambda: fake)
+
+        solicitud = liquidar_solicitud(_solicitud(cobranzas_uuid="uuid-previo"))
+
+        assert solicitud.estado == SolicitudLiquidacion.Estado.FACTURADO, solicitud.error
+
     def test_documento_manda_numero_corto_y_fecha_registro(self, monkeypatch):
         fake = FakeCobranzasBancoClientDeTest()
         documentos = []

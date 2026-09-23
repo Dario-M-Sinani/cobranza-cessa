@@ -106,10 +106,17 @@ def liquidar_solicitud(solicitud: SolicitudLiquidacion) -> SolicitudLiquidacion:
                     cliente.pagar_transaccion(uuid, detalle, documento)
                 # PAGADA: ya se pagó otro día (falló después, al traer el comprobante) -- se sigue
                 # directo al comprobante con esa misma transacción.
-            # Ya se pagó en un intento anterior (ver _MENSAJE_YA_PAGADA arriba) -- no es un
-            # rechazo real, solo falta completar el paso que sigue (traer el comprobante).
             elif _MENSAJE_YA_PAGADA not in str(exc):
                 raise
+            # "Ya ha sido pagada": solo es un éxito recuperable si fue ESTA transacción la que pagó
+            # en un intento anterior (ver _MENSAJE_YA_PAGADA arriba). Si la transacción no quedó
+            # PAGADA, la deuda la pagó otro canal/otra transacción -- es un rechazo real, y se
+            # informa tal cual en vez de fallar después con "estado FALLIDA" al pedir el comprobante.
+            elif cliente.obtener_estado_transaccion(uuid) not in ("PAGADA", ""):
+                raise CobranzasBancoRequestError(
+                    f"El SIIC rechazó el pago: alguno de los comprobantes ya figura pagado por otro "
+                    f"medio (no por esta liquidación). Revisar la deuda del cliente. Detalle: {exc}"
+                ) from exc
 
         comprobante = cliente.obtener_comprobante_pdf(uuid)
 
