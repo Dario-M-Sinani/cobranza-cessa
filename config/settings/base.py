@@ -167,6 +167,12 @@ COBRANZAS_BANCO_AGENCIA_SIGLA = env("COBRANZAS_BANCO_AGENCIA_SIGLA", default="")
 # construirDocumento(), del lado cessa-laravel).
 COBRANZAS_BANCO_DOCUMENTO_ENTE_ID = env("COBRANZAS_BANCO_DOCUMENTO_ENTE_ID", default="")
 COBRANZAS_BANCO_DOCUMENTO_BANCO_ID = env("COBRANZAS_BANCO_DOCUMENTO_BANCO_ID", default="")
+# banco_id (catálogo GET /v1/bancos) por banco de origen del cobro QR web, para que lo pagado por
+# BNB no quede registrado en el SIIC como BISA. Si falta uno, se usa el DOCUMENTO_BANCO_ID de arriba.
+COBRANZAS_BANCO_DOCUMENTO_BANCO_IDS = {
+    "sip_bisa": env("COBRANZAS_BANCO_DOCUMENTO_BANCO_ID_BISA", default=""),
+    "bnb": env("COBRANZAS_BANCO_DOCUMENTO_BANCO_ID_BNB", default=""),
+}
 
 # API keys de servicios externos autorizados a llamar apps.facturacion_externa
 # (ver apps/facturacion_externa/permissions.py) -- hoy solo cessa-laravel.

@@ -64,6 +64,15 @@ def numero_documento_para(solicitud: SolicitudLiquidacion) -> str:
     return "CW" + hashlib.sha256(solicitud.alias.encode()).hexdigest()[: _MAX_NUMERO_DOCUMENTO - 2].upper()
 
 
+def banco_id_para(solicitud: SolicitudLiquidacion) -> str:
+    """banco_id del documento según el banco por el que entró la plata (`solicitud.banco`); si no
+    vino o no hay uno configurado para ese banco, el COBRANZAS_BANCO_DOCUMENTO_BANCO_ID de siempre."""
+    return (
+        settings.COBRANZAS_BANCO_DOCUMENTO_BANCO_IDS.get(solicitud.banco or "")
+        or settings.COBRANZAS_BANCO_DOCUMENTO_BANCO_ID
+    )
+
+
 def liquidar_solicitud(solicitud: SolicitudLiquidacion) -> SolicitudLiquidacion:
     if solicitud.estado == SolicitudLiquidacion.Estado.FACTURADO:
         return solicitud  # ya liquidada -- idempotente, no se vuelve a pagar.
@@ -94,6 +103,7 @@ def liquidar_solicitud(solicitud: SolicitudLiquidacion) -> SolicitudLiquidacion:
             moneda=solicitud.moneda,
             numero_documento=numero_documento_para(solicitud),
             fecha_pago=solicitud.fecha_pago,
+            banco_id=banco_id_para(solicitud),
         )
         def pagar(uuid_actual: str) -> str:
             """Paga con la Transacción dada; si quedó FALLIDA de un intento anterior, crea otra y

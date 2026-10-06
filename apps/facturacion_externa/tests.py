@@ -12,7 +12,7 @@ from services.cobranzas_banco_client import CobranzasBancoError, CobranzasBancoC
 
 from . import services as facturacion_services
 from .models import SolicitudLiquidacion
-from .services import liquidar_solicitud, numero_documento_para
+from .services import banco_id_para, liquidar_solicitud, numero_documento_para
 
 
 class FakeCobranzasBancoClientDeTest(CobranzasBancoClientInterface):
@@ -301,6 +301,38 @@ class TestNumeroDocumento:
         assert numero == numero_documento_para(solicitud)  # mismo en cada reintento
         otro = _solicitud(alias="CESSA-SIM-20260922145238-E2BM")
         assert numero_documento_para(otro) != numero
+
+
+@pytest.mark.django_db
+class TestBancoIdPorBanco:
+    """Lo pagado por BNB no debe quedar en el SIIC como BISA: el banco_id sale del banco del QR."""
+
+    @pytest.fixture(autouse=True)
+    def _ids(self, settings):
+        settings.COBRANZAS_BANCO_DOCUMENTO_BANCO_IDS = {"sip_bisa": "4", "bnb": "5"}
+
+    def test_bnb_usa_su_banco_id(self):
+        assert banco_id_para(_solicitud(banco="bnb")) == "5"
+
+    def test_bisa_usa_su_banco_id(self):
+        assert banco_id_para(_solicitud(banco="sip_bisa")) == "4"
+
+    def test_sin_banco_o_desconocido_usa_el_de_siempre(self, settings):
+        assert banco_id_para(_solicitud()) == "7"
+        assert banco_id_para(_solicitud(alias="CESSA-WEB-TEST-2", banco="otro")) == "7"
+        settings.COBRANZAS_BANCO_DOCUMENTO_BANCO_IDS = {"sip_bisa": "", "bnb": ""}
+        assert banco_id_para(_solicitud(alias="CESSA-WEB-TEST-3", banco="bnb")) == "7"
+
+    def test_el_documento_enviado_lleva_el_banco_id_del_qr(self, monkeypatch):
+        documentos = []
+
+        class Fake(FakeCobranzasBancoClientDeTest):
+            def pagar_transaccion(self, uuid, detalle, documento):
+                documentos.append(documento)
+
+        monkeypatch.setattr(facturacion_services, "get_cobranzas_banco_client", lambda: Fake())
+        liquidar_solicitud(_solicitud(banco="bnb"))
+        assert documentos[0]["banco_id"] == 5
 
 
 @pytest.mark.django_db

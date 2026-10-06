@@ -38,6 +38,10 @@ class SolicitudLiquidacion(models.Model):
     detalle = models.JSONField(encoder=DjangoJSONEncoder)
     fecha_pago = models.DateTimeField()
     numero_orden_originante = models.CharField(max_length=50, blank=True, default="")
+    # Banco por el que entró la plata, según cessa-laravel (`Recibo::provider`: "sip_bisa", "bnb").
+    # Define el `banco_id` del documento en el SIIC (ver services.banco_id_para); vacío = el de
+    # COBRANZAS_BANCO_DOCUMENTO_BANCO_ID, como antes.
+    banco = models.CharField(max_length=30, blank=True, default="")
 
     estado = models.CharField(max_length=20, choices=Estado.choices, default=Estado.PENDIENTE)
     cobranzas_uuid = models.CharField(max_length=100, blank=True, default="")

@@ -119,7 +119,7 @@ def construir_detalle(items_deuda: list[dict], nro_cliente_fallback: str = "") -
 
 
 def construir_documento(
-    *, nro_cliente: str, monto: Decimal, moneda: str, numero_documento: str, fecha_pago
+    *, nro_cliente: str, monto: Decimal, moneda: str, numero_documento: str, fecha_pago, banco_id=None
 ) -> dict:
     """Arma el `documento` que exige `/pagar-otro-documento`, igual que
     `FacturacionRecibo::construirDocumento()`. `ente_id`/`banco_id` salen de
@@ -131,7 +131,7 @@ def construir_documento(
     return {
         "ente_id": int(settings.COBRANZAS_BANCO_DOCUMENTO_ENTE_ID),
         "moneda": moneda_codigo,
-        "banco_id": int(settings.COBRANZAS_BANCO_DOCUMENTO_BANCO_ID),
+        "banco_id": int(banco_id or settings.COBRANZAS_BANCO_DOCUMENTO_BANCO_ID),
         "numero": numero_documento,
         "importe": float(monto),
         "fecha": fecha,

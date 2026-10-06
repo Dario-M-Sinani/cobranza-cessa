@@ -34,6 +34,7 @@ class SolicitudLiquidacionEntradaSerializer(serializers.Serializer):
     detalle = ItemDeudaEntradaSerializer(many=True)
     fecha_pago = serializers.DateTimeField()
     numero_orden_originante = serializers.CharField(max_length=50, allow_blank=True, required=False, default="")
+    banco = serializers.CharField(max_length=30, allow_blank=True, required=False, default="")
 
 
 class SolicitudLiquidacionSalidaSerializer(serializers.ModelSerializer):

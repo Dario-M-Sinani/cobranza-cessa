@@ -35,6 +35,7 @@ class LiquidarReciboExternoView(APIView):
                 "detalle": datos["detalle"],
                 "fecha_pago": datos["fecha_pago"],
                 "numero_orden_originante": datos.get("numero_orden_originante", ""),
+                "banco": datos.get("banco", ""),
             },
         )
 
