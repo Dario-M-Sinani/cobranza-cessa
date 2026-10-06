@@ -210,6 +210,69 @@ class TestLiquidarSolicitud:
 
         assert solicitud.estado == SolicitudLiquidacion.Estado.FACTURADO, solicitud.error
 
+    def _fake_con_transaccion_fallida(self, segundo_intento=None):
+        """Transacción "uuid-fallida" quedó FALLIDA en un intento anterior; la nueva ("uuid-test")
+        hace lo que diga `segundo_intento` (None = paga bien)."""
+        fake = FakeCobranzasBancoClientDeTest()
+        fake.pagados = []
+
+        def pagar(uuid, detalle, documento):
+            fake.llamadas_pagar += 1
+            if uuid == "uuid-fallida":
+                raise CobranzasBancoRequestError(
+                    "pagar transacción: La transacción no se puede completar porque ha fallado previamente. "
+                    "Por favor, revise el detalle de la transacción para más información."
+                )
+            if segundo_intento:
+                raise segundo_intento
+            fake.pagados.append(uuid)
+
+        fake.pagar_transaccion = pagar
+        fake.obtener_estado_transaccion = lambda uuid: "FALLIDA"
+        return fake
+
+    def test_transaccion_fallida_crea_una_nueva_y_factura(self, monkeypatch):
+        fake = self._fake_con_transaccion_fallida()
+        monkeypatch.setattr(facturacion_services, "get_cobranzas_banco_client", lambda: fake)
+
+        solicitud = liquidar_solicitud(
+            _solicitud(estado=SolicitudLiquidacion.Estado.ERROR, cobranzas_uuid="uuid-fallida")
+        )
+
+        assert solicitud.estado == SolicitudLiquidacion.Estado.FACTURADO, solicitud.error
+        assert fake.llamadas_crear_transaccion == 1
+        assert fake.pagados == ["uuid-test"]
+        assert solicitud.cobranzas_uuid == "uuid-test"
+
+    def test_transaccion_fallida_muestra_el_motivo_real_del_rechazo(self, monkeypatch):
+        # Antes el error guardado era siempre "ha fallado previamente"; ahora es el motivo real.
+        fake = self._fake_con_transaccion_fallida(
+            CobranzasBancoRequestError('pagar transacción: {"error_mensaje": "La deuda ya ha sido pagada con anterioridad"}')
+        )
+        monkeypatch.setattr(facturacion_services, "get_cobranzas_banco_client", lambda: fake)
+
+        solicitud = liquidar_solicitud(
+            _solicitud(estado=SolicitudLiquidacion.Estado.ERROR, cobranzas_uuid="uuid-fallida")
+        )
+
+        assert solicitud.estado == SolicitudLiquidacion.Estado.ERROR
+        assert "ya figura pagado por otro medio" in solicitud.error
+        assert "fallado previamente" not in solicitud.error
+        assert solicitud.cobranzas_uuid == "uuid-test"
+
+    def test_transaccion_fallida_con_otro_rechazo_lo_informa_tal_cual(self, monkeypatch):
+        fake = self._fake_con_transaccion_fallida(
+            CobranzasBancoRequestError("pagar transacción: El operador no puede aperturar caja fuera de horario")
+        )
+        monkeypatch.setattr(facturacion_services, "get_cobranzas_banco_client", lambda: fake)
+
+        solicitud = liquidar_solicitud(
+            _solicitud(estado=SolicitudLiquidacion.Estado.ERROR, cobranzas_uuid="uuid-fallida")
+        )
+
+        assert solicitud.estado == SolicitudLiquidacion.Estado.ERROR
+        assert "fuera de horario" in solicitud.error
+
     def test_documento_manda_numero_corto_y_fecha_registro(self, monkeypatch):
         fake = FakeCobranzasBancoClientDeTest()
         documentos = []

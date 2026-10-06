@@ -38,6 +38,16 @@ _MENSAJE_YA_PAGADA = 'ya ha sido pagada'
 # antes que el estado). Un reintento al día siguiente de un intento fallido necesita una nueva.
 _MENSAJE_TRANSACCION_EXPIRADA = 'ha expirado'
 
+# api-cobranzas-bancos marca FALLIDA la Transacción apenas el SIIC rechaza un pago (por cualquier
+# motivo: deuda ya pagada, caja fuera de horario, timeout...) y después rechaza todo reintento sobre
+# ella con este texto, ANTES de volver a preguntarle al SIIC (TransaccionController@
+# pagarOtroDocumento, chequeo de estado). Antes se reutilizaba esa misma Transacción para siempre:
+# cada reintento chocaba acá, el motivo real del rechazo quedaba tapado y un problema pasajero
+# nunca se recuperaba. FALLIDA = el SIIC deshizo todo el lote (una sola transacción DB2), nada quedó
+# pagado con ella, así que se crea otra y se reintenta. No hay riesgo de doble cobro: si la deuda
+# igual figura pagada, el SIIC rechaza con "ya ha sido pagada" (COMPLOC=999).
+_MENSAJE_TRANSACCION_FALLIDA = 'ha fallado previamente'
+
 # Largo máximo de `documento.numero` en el SIIC (`'documento.numero' => 'required|max:20'` en
 # CajaController@pagarOtroDocumento, columna TCNN3051.CNN6NRO).
 _MAX_NUMERO_DOCUMENTO = 20
@@ -85,9 +95,26 @@ def liquidar_solicitud(solicitud: SolicitudLiquidacion) -> SolicitudLiquidacion:
             numero_documento=numero_documento_para(solicitud),
             fecha_pago=solicitud.fecha_pago,
         )
+        def pagar(uuid_actual: str) -> str:
+            """Paga con la Transacción dada; si quedó FALLIDA de un intento anterior, crea otra y
+            paga con esa (ver _MENSAJE_TRANSACCION_FALLIDA). Devuelve el uuid con el que se pagó."""
+            try:
+                cliente.pagar_transaccion(uuid_actual, detalle, documento)
+                return uuid_actual
+            except CobranzasBancoRequestError as exc:
+                if _MENSAJE_TRANSACCION_FALLIDA not in str(exc):
+                    raise
+            nuevo = cliente.crear_transaccion()
+            solicitud.cobranzas_uuid = nuevo
+            solicitud.save(update_fields=["cobranzas_uuid"])
+            cliente.pagar_transaccion(nuevo, detalle, documento)
+            return nuevo
+
         try:
-            cliente.pagar_transaccion(uuid, detalle, documento)
+            uuid = pagar(uuid)
         except CobranzasBancoRequestError as exc:
+            # Si pagar() creó una Transacción nueva, los chequeos de abajo son sobre esa.
+            uuid = solicitud.cobranzas_uuid
             if _MENSAJE_TRANSACCION_EXPIRADA in str(exc):
                 # Transacción de un día anterior (api-cobranzas-bancos valida la fecha antes que
                 # el estado, así que no dice si ya estaba pagada). Se pregunta el estado real:
