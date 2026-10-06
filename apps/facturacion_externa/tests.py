@@ -518,3 +518,30 @@ class TestConsultaClienteExterna:
 
     def test_sin_nro_cliente_devuelve_400(self):
         assert self._cliente().get(self.URL).status_code == 400
+
+
+@pytest.mark.django_db
+class TestVerLiquidaciones:
+    def test_filtra_por_cliente_y_muestra_error_y_detalle(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        _solicitud(alias="A-1", nro_cliente="115997", estado=SolicitudLiquidacion.Estado.ERROR, error="La deuda no existe")
+        _solicitud(alias="A-2", nro_cliente="999")
+        salida = StringIO()
+
+        call_command("ver_liquidaciones", "--cliente", "115997", "--detalle", stdout=salida)
+
+        texto = salida.getvalue()
+        assert "A-1" in texto and "A-2" not in texto
+        assert "La deuda no existe" in texto
+
+    def test_sin_resultados(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        salida = StringIO()
+        call_command("ver_liquidaciones", "--cliente", "1", stdout=salida)
+        assert "Sin liquidaciones" in salida.getvalue()

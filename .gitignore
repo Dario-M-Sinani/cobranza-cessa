@@ -9,3 +9,6 @@ venv/
 .pytest_cache/
 .vscode/
 .idea/
+
+# Token local del front de deuda (tools/deuda-test-front)
+.token

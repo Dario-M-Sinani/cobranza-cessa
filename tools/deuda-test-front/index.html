@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deuda SIIC test</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1c2430; --muted:#667085; --line:#e4e7ec; --accent:#1d5fd1; --debe:#b42318; --ok:#067647; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1318; --card:#171c23; --text:#e6e9ee; --muted:#98a2b3; --line:#2a313b; --accent:#6ea0ff; --debe:#ff8a7a; --ok:#5fd39a; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  main { max-width:1100px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { font-size:20px; margin:0 0 4px; } .sub { color:var(--muted); margin:0 0 20px; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin-bottom:20px; }
+  .tile, .panel { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .tile b { display:block; font-size:22px; font-variant-numeric:tabular-nums; } .tile span { color:var(--muted); font-size:12px; }
+  .panel { margin-bottom:16px; } .panel h2 { font-size:15px; margin:0 0 10px; }
+  form { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  input { padding:7px 9px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--text); width:120px; }
+  button { padding:7px 12px; border:0; border-radius:6px; background:var(--accent); color:#fff; cursor:pointer; }
+  button.sec { background:transparent; color:var(--accent); border:1px solid var(--line); }
+  button:disabled { opacity:.5; cursor:default; }
+  .estado { color:var(--muted); font-size:12px; margin-top:8px; min-height:16px; }
+  table { width:100%; border-collapse:collapse; } th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:500; font-size:12px; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  tr.cli { cursor:pointer; } tr.cli:hover { background:var(--bg); }
+  .debe { color:var(--debe); font-weight:600; } .ok { color:var(--ok); }
+  .det td { background:var(--bg); padding:4px 8px 12px 28px; } .det table td, .det table th { font-size:12px; }
+  .scroll { overflow-x:auto; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Deuda en SIIC test (BKLDTA)</h1>
+  <p class="sub">Vía API Nest <code>10.1.1.88:6012</code>, solo lectura. Clic en un cliente para ver sus comprobantes pendientes.</p>
+
+  <div class="tiles">
+    <div class="tile"><b id="t-cli">0</b><span>clientes con deuda</span></div>
+    <div class="tile"><b id="t-total">Bs 0,00</b><span>deuda total</span></div>
+    <div class="tile"><b id="t-rev">0</b><span>clientes revisados</span></div>
+  </div>
+
+  <div class="panel">
+    <h2>Buscar clientes</h2>
+    <form id="f-buscar">
+      <input id="nros" placeholder="101194, 101591…" style="width:280px">
+      <button>Agregar</button>
+      <button type="button" class="sec" id="b-actualizar">↻ Actualizar</button>
+      <span class="estado" id="actualizado"></span>
+    </form>
+    <form id="f-rango" style="margin-top:10px">
+      <span>Explorar rango</span>
+      <input id="desde" type="number" value="101000"> a <input id="hasta" type="number" value="108000">
+      <button id="b-rango">Explorar</button>
+      <button type="button" class="sec" id="b-parar" disabled>Parar</button>
+      <label><input type="checkbox" id="solo-deuda" checked style="width:auto"> solo con deuda</label>
+    </form>
+    <div class="estado" id="estado"></div>
+  </div>
+
+  <div class="panel scroll">
+    <table>
+      <thead><tr><th>Cliente</th><th>Nombre</th><th>Cuenta</th><th>Categoría</th><th>Dirección</th><th class="num">Deuda (Bs)</th></tr></thead>
+      <tbody id="filas"><tr><td colspan="6" class="estado">Cargando…</td></tr></tbody>
+    </table>
+  </div>
+</main>
+<script>
+const CONOCIDOS = [101194, 101591, 102782, 105164, 107943, 153896];
+const LOTE = 500, MAX_RANGO = 20000;
+const clientes = new Map();   // nro → fila de /v1/clientes
+let abierto = null, parar = false;
+
+const $ = (id) => document.getElementById(id);
+const bs = (n) => Number(n).toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const fecha = (f) => /^\d{8}$/.test(f) ? `${f.slice(6)}/${f.slice(4,6)}/${f.slice(0,4)}` : f;
+const estado = (t) => { $('estado').textContent = t; };
+
+async function api(ruta) {
+  const r = await fetch('/api' + ruta);
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error(j.message || j.error || `HTTP ${r.status}`);
+  return j;
+}
+
+/** `contar`: false al actualizar, para no sumar dos veces a "clientes revisados". */
+async function cargar(numeros, contar = true) {
+  for (let i = 0; i < numeros.length && !parar; i += LOTE) {
+    const lote = numeros.slice(i, i + LOTE);
+    estado(`Consultando ${lote[0]}–${lote[lote.length - 1]}… (${Math.min(i + LOTE, numeros.length)}/${numeros.length})`);
+    const qs = lote.map((n) => `numeros[]=${n}`).join('&');
+    const filas = (await api('/v1/clientes?' + qs)) ?? [];
+    if (contar) revisados += lote.length;
+    for (const f of filas) clientes.set(Number(f.nro_cliente), f);
+    pintar();
+  }
+}
+let revisados = 0;
+
+function pintar() {
+  const solo = $('solo-deuda').checked;
+  const lista = [...clientes.values()].sort((a, b) => Number(b.deuda_total) - Number(a.deuda_total));
+  const conDeuda = lista.filter((c) => Number(c.deuda_total) > 0);
+  $('t-cli').textContent = conDeuda.length;
+  $('t-total').textContent = 'Bs ' + bs(conDeuda.reduce((s, c) => s + Number(c.deuda_total), 0));
+  $('t-rev').textContent = revisados.toLocaleString('es-BO');
+  const ver = solo ? conDeuda : lista;
+  $('filas').innerHTML = ver.length ? ver.map((c) => `
+    <tr class="cli" data-n="${esc(c.nro_cliente)}">
+      <td>${esc(c.nro_cliente)}</td><td>${esc(c.nombre)}</td>
+      <td>${esc(c.zona)}-${esc(c.manzano)}-${esc(c.correlativo)}</td>
+      <td>${esc(c.categoria)}</td><td>${esc(c.direccion)}</td>
+      <td class="num ${Number(c.deuda_total) > 0 ? 'debe' : 'ok'}">${bs(c.deuda_total)}</td>
+    </tr>${abierto === String(c.nro_cliente) ? '<tr class="det"><td colspan="6" id="det">Cargando…</td></tr>' : ''}`).join('')
+    : '<tr><td colspan="6" class="estado">Sin clientes para mostrar.</td></tr>';
+  if (abierto) detalle(abierto);
+}
+
+const cacheDet = new Map();
+async function detalle(n) {
+  try {
+    const d = cacheDet.get(n) ?? await api(`/v1/clientes/${n}/deuda?limit=-1`);
+    cacheDet.set(n, d);
+    const celda = $('det'); if (!celda) return;
+    celda.innerHTML = d && d.items.length ? `<table>
+      <thead><tr><th>Comprobante</th><th>Fecha</th><th>Tipo</th><th>Detalle</th><th class="num">Importe</th></tr></thead>
+      <tbody>${d.items.map((i) => `<tr><td>${[i.letra_comprobante?.trim(), i.nro_comprobante].filter(Boolean).map(esc).join('-')}</td><td>${fecha(i.fecha)}</td>
+        <td>${esc(i.tipo)}</td><td>${esc(i.detalle)}</td><td class="num">${bs(i.importe)}</td></tr>`).join('')}
+      <tr><td colspan="4"><b>${esc(d.cantidad)} comprobantes cobrables</b></td><td class="num"><b>${bs(d.total)}</b></td></tr></tbody></table>`
+      : 'Sin comprobantes cobrables (la suma del listado puede incluir facturas electrónicas no verificadas).';
+  } catch (e) { const c = $('det'); if (c) c.textContent = 'Error: ' + e.message; }
+}
+
+$('filas').addEventListener('click', (e) => {
+  const tr = e.target.closest('tr.cli'); if (!tr) return;
+  abierto = abierto === tr.dataset.n ? null : tr.dataset.n;
+  pintar();
+});
+$('solo-deuda').addEventListener('change', pintar);
+
+async function correr(fn) {
+  parar = false; $('b-rango').disabled = $('b-actualizar').disabled = true; $('b-parar').disabled = false;
+  try {
+    await fn();
+    estado(parar ? 'Detenido.' : 'Listo.');
+    $('actualizado').textContent = 'Actualizado ' + new Date().toLocaleTimeString('es-BO');
+  } catch (e) { estado('Error: ' + e.message); }
+  $('b-rango').disabled = $('b-actualizar').disabled = false; $('b-parar').disabled = true;
+}
+$('b-actualizar').onclick = () => {
+  cacheDet.clear();
+  const nros = clientes.size ? [...clientes.keys()] : CONOCIDOS;
+  correr(() => cargar(nros, false));
+};
+$('b-parar').onclick = () => { parar = true; };
+$('f-buscar').onsubmit = (e) => {
+  e.preventDefault();
+  const nros = $('nros').value.split(/[^\d]+/).filter(Boolean).map(Number);
+  if (nros.length) correr(() => cargar(nros));
+};
+$('f-rango').onsubmit = (e) => {
+  e.preventDefault();
+  const d = Number($('desde').value), h = Number($('hasta').value);
+  if (!(h >= d) || h - d + 1 > MAX_RANGO) return estado(`Rango inválido (máximo ${MAX_RANGO} clientes por vez).`);
+  correr(() => cargar(Array.from({ length: h - d + 1 }, (_, i) => d + i)));
+};
+
+correr(() => cargar(CONOCIDOS));
+</script>
+</body>
+</html>

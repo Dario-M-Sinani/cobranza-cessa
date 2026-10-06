@@ -52,6 +52,10 @@ y sin conectar a los cobros (QR/efectivo).
 
 ## Gateway para cessa-laravel (`apps/facturacion_externa`)
 
+> Trabajo en la .88 por SSH (actualizar, tests, diagnosticar pagos, front de deuda):
+> **[docs/TRABAJO_REMOTO.md](docs/TRABAJO_REMOTO.md)**. Desde 2026-10-06 la deuda también
+> sale por acá (`GET /api/externo/consulta/cliente/`), leída como banco desde api-cobranzas.
+
 `cessa-laravel` corre en Hostinger (hosting compartido) y nunca pudo alcanzar
 `api-cobranzas-bancos` directo (red interna de CESSA). Le pide a este backend
 que lo haga por él:
