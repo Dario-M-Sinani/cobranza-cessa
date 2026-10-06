@@ -8,6 +8,7 @@ import pytest
 
 from services.deuda_client import (
     ClienteNoEncontradoError,
+    CobranzasBancoDeudaClient,
     DeudaClientError,
     SiicDeudaClient,
     _reparar_codificacion,
@@ -137,3 +138,69 @@ class TestSiicDeudaClient:
         assert _reparar_codificacion("Juan Pérez Mamani") == "Juan Pérez Mamani"
         assert _reparar_codificacion("") == ""
         assert _reparar_codificacion(None) is None
+
+
+class _FakeBancoClient:
+    """Doble de LumenCobranzasBancoClient: solo `_request_autenticado`."""
+
+    def __init__(self, response=None, error=None):
+        self.response = response
+        self.error = error
+        self.llamadas = []
+
+    def _request_autenticado(self, metodo, path, **kwargs):
+        self.llamadas.append((metodo, path, kwargs))
+        if self.error:
+            raise self.error
+        return self.response
+
+
+class TestCobranzasBancoDeudaClient:
+    """Deuda leída como banco: GET /v1/consulta/deuda de api-cobranzas (pase
+    directo al /v1/consulta/cliente del SIIC de esa instancia)."""
+
+    def _con(self, fake):
+        return patch("services.cobranzas_banco_client.get_cobranzas_banco_client", return_value=fake)
+
+    def test_consulta_por_api_cobranzas_y_arma_items_con_signo(self):
+        fake = _FakeBancoClient(_response({
+            "nro_cliente": "115997",
+            "nombre": "SIÃ\x91ANI DURAN",
+            "deuda": [
+                {"codigo_sucursal": "1", "nro_comprobante": "2241545", "nro_suministro": "1", "fecha": "20260211",
+                 "tipo": "3", "letra_comprobante": " ", "nro_autorizacion": "3", "nro_cliente": "115997",
+                 "anio": "2026", "mes": "2", "importe": "543.60", "detalle": "Fact Energia FEBRERO/2026",
+                 "debito_credito": "DEBITO"},
+                {"codigo_sucursal": "1", "nro_comprobante": "18128", "nro_suministro": "1", "fecha": "20260611",
+                 "tipo": "31", "letra_comprobante": " ", "nro_autorizacion": "0", "nro_cliente": "115997",
+                 "anio": "2026", "mes": "5", "importe": "514.90", "detalle": "NC. CONCILIACIÃ\x93N MAYO/2026",
+                 "debito_credito": "CREDITO"},
+            ],
+        }))
+        with self._con(fake):
+            resultado = CobranzasBancoDeudaClient().consultar_deuda("115997")
+
+        assert fake.llamadas == [("get", "/v1/consulta/deuda", {"params": {"nro_cliente": "115997", "ver_deuda": "si"}})]
+        assert resultado.nombre_cliente == "SIÑANI DURAN"
+        assert [i.importe for i in resultado.items] == [Decimal("543.60"), Decimal("-514.90")]
+        assert resultado.items[1].detalle == "NC. CONCILIACIÓN MAYO/2026"
+        assert resultado.monto_total == Decimal("28.70")
+
+    def test_404_de_api_cobranzas_es_cliente_no_encontrado(self):
+        fake = _FakeBancoClient(_response({"error": "No existe ningún cliente con los datos introducidos", "code": 404}, 404))
+        with self._con(fake), pytest.raises(ClienteNoEncontradoError):
+            CobranzasBancoDeudaClient().consultar_deuda("999999")
+
+    @pytest.mark.parametrize("status", [401, 403, 500, 504])
+    def test_credenciales_o_caida_no_se_confunden_con_no_existe(self, status):
+        fake = _FakeBancoClient(_response({"error": "x", "code": status}, status))
+        with self._con(fake), pytest.raises(DeudaClientError) as exc:
+            CobranzasBancoDeudaClient().consultar_deuda("115997")
+        assert not isinstance(exc.value, ClienteNoEncontradoError)
+
+    def test_error_de_red_es_deuda_client_error(self):
+        import requests
+
+        fake = _FakeBancoClient(error=requests.ConnectionError("sin red"))
+        with self._con(fake), pytest.raises(DeudaClientError):
+            CobranzasBancoDeudaClient().consultar_deuda("115997")

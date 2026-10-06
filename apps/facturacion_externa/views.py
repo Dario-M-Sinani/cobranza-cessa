@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from services.cobranzas_banco_client import CobranzasBancoError, get_cobranzas_banco_client
+from services.deuda_client import DeudaClientError, consultar_cliente_via_cobranzas
 
 from .models import SolicitudLiquidacion
 from .permissions import TieneApiKeyServicioExterno
@@ -108,3 +109,34 @@ class ComprobanteJsonLiquidacionView(APIView):
             return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
 
         return Response(documento)
+
+
+# Parámetros de `/v1/consulta/cliente` del SIIC que se reenvían; cualquier otro se descarta.
+PARAMETROS_CONSULTA_CLIENTE = ("nro_cliente", "zona", "manzano", "correlativo", "ver_deuda", "ver_pagos")
+
+
+class ConsultaClienteExternaView(APIView):
+    """Deuda de un cliente para cessa-laravel, leída **como banco** a través de
+    api-cobranzas-bancos (`GET /v1/consulta/deuda`, mismo login con el que
+    después se paga). Mismos parámetros y misma respuesta que el
+    `/v1/consulta/cliente` del SIIC, para que cessa-laravel solo cambie a quién
+    le pregunta. Así la deuda que se cobra por QR sale del mismo SIIC donde
+    `recibos-web/liquidar/` la paga (antes cessa-laravel leía SIIC prod y el
+    pago iba a test: "La deuda no existe con los datos proporcionados").
+
+    El status de api-cobranzas se reenvía tal cual (404 = no existe el abonado,
+    con `{"error": ...}`). Si api-cobranzas o el SIIC no responden: 503, no 502,
+    porque Cloudflare reemplaza los 502 por su propia página."""
+
+    authentication_classes = []
+    permission_classes = [TieneApiKeyServicioExterno]
+
+    def get(self, request):
+        params = {k: request.query_params[k] for k in PARAMETROS_CONSULTA_CLIENTE if k in request.query_params}
+        if not params.get("nro_cliente") and not params.get("zona"):
+            return Response({"error": "Falta nro_cliente (o zona/manzano/correlativo)."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            codigo, body = consultar_cliente_via_cobranzas(params)
+        except DeudaClientError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response(body, status=codigo)

@@ -157,45 +157,94 @@ class SiicDeudaClient(DeudaClientInterface):
         except ValueError as exc:
             raise DeudaClientError(f"consulta-deuda {codigo_externo}: respuesta no es JSON válido") from exc
 
-        body = _reparar_codificacion_recursivo(body)
+        return _resultado_desde_respuesta(codigo_externo, response.status_code, body)
 
-        # 401/403 es SIIC rechazando el token configurado, no "no existe el
-        # abonado" -- antes caía en el `body.get("error")` de abajo y se
-        # reportaba como ClienteNoEncontradoError (404), escondiendo un
-        # problema real de credenciales detrás de un resultado esperado.
-        if response.status_code in (401, 403):
-            raise DeudaClientError(
-                f"consulta-deuda {codigo_externo}: SIIC rechazó las credenciales configuradas "
-                f"(HTTP {response.status_code}: {body})"
-            )
 
-        if body.get("error") or not body.get("nro_cliente"):
-            raise ClienteNoEncontradoError(f"No se encontró ningún abonado con el número {codigo_externo}.")
+class CobranzasBancoDeudaClient(DeudaClientInterface):
+    """Consulta la deuda **como un banco más**: `GET /v1/consulta/deuda` de
+    api-cobranzas-bancos (la .102), con el mismo login OAuth (cajero/caja) con
+    el que después se paga. Ese endpoint de Lumen es un pase directo al
+    `/v1/consulta/cliente` del SIIC al que apunta esa instancia (test: .18:6003
+    → BKLDTA; confirmado 2026-10-06), así que la respuesta tiene el mismo
+    formato que `SiicDeudaClient` y la deuda sale del MISMO SIIC donde se paga.
+    Antes la deuda se leía de un SIIC y se pagaba en otro (cessa-laravel leía
+    prod y pagaba en test → "La deuda no existe con los datos proporcionados")."""
 
-        items = [
-            ItemDeuda(
-                codigo_sucursal=str(item.get("codigo_sucursal", "")),
-                nro_comprobante=str(item.get("nro_comprobante", "")),
-                nro_suministro=str(item.get("nro_suministro", "")),
-                fecha=str(item.get("fecha", "")),
-                tipo=str(item.get("tipo", "")),
-                letra_comprobante=str(item.get("letra_comprobante", "")),
-                nro_autorizacion=str(item.get("nro_autorizacion", "")),
-                nro_cliente=str(item.get("nro_cliente", "")),
-                anio=int(item["anio"]),
-                mes=int(item["mes"]),
-                importe=_importe_firmado(item),
-                detalle=item.get("detalle", ""),
-                debito_credito=str(item.get("debito_credito", "")),
-            )
-            for item in body.get("deuda", [])
-        ]
+    def consultar_deuda(self, codigo_externo: str) -> ResultadoConsultaDeuda:
+        status, body = consultar_cliente_via_cobranzas({"nro_cliente": codigo_externo, "ver_deuda": "si"})
+        return _resultado_desde_respuesta(codigo_externo, status, body)
 
-        return ResultadoConsultaDeuda(
-            codigo_externo_cliente=codigo_externo,
-            nombre_cliente=body.get("nombre", ""),
-            items=items,
+
+def consultar_cliente_via_cobranzas(params: dict) -> tuple[int, dict]:
+    """`GET /v1/consulta/deuda` de api-cobranzas-bancos con el login del
+    gateway. Devuelve `(status, body)` tal cual (sin reparar codificación),
+    para que el endpoint externo lo pueda reenviar sin cambios. Lanza
+    `DeudaClientError` solo si no hubo respuesta JSON utilizable."""
+    from services.cobranzas_banco_client import CobranzasBancoError, get_cobranzas_banco_client
+
+    try:
+        response = get_cobranzas_banco_client()._request_autenticado("get", "/v1/consulta/deuda", params=params)
+        body = response.json()
+    except (requests.RequestException, CobranzasBancoError) as exc:
+        raise DeudaClientError(f"consulta-deuda vía api-cobranzas {params}: {exc}") from exc
+    except ValueError as exc:
+        raise DeudaClientError(f"consulta-deuda vía api-cobranzas {params}: respuesta no es JSON válido") from exc
+    if not isinstance(body, dict):
+        raise DeudaClientError(f"consulta-deuda vía api-cobranzas {params}: respuesta inesperada {body!r}")
+    # 401/403 acá ya es después del reintento con token nuevo: el usuario del
+    # gateway no tiene permiso (rol/credenciales), no "no existe el abonado".
+    if response.status_code in (401, 403):
+        raise DeudaClientError(
+            f"consulta-deuda vía api-cobranzas: credenciales rechazadas (HTTP {response.status_code}: {body})"
         )
+    # 5xx/504 de Lumen (SIIC caído o timeout) tampoco es "no existe".
+    if response.status_code >= 500:
+        raise DeudaClientError(f"consulta-deuda vía api-cobranzas: HTTP {response.status_code}: {body}")
+    return response.status_code, body
+
+
+def _resultado_desde_respuesta(codigo_externo: str, status_code: int, body: dict) -> ResultadoConsultaDeuda:
+    """Interpreta la respuesta de `/v1/consulta/cliente` del SIIC (directa o a
+    través de api-cobranzas, que la reenvía igual)."""
+    body = _reparar_codificacion_recursivo(body)
+
+    # 401/403 es SIIC rechazando el token configurado, no "no existe el
+    # abonado" -- antes caía en el `body.get("error")` de abajo y se
+    # reportaba como ClienteNoEncontradoError (404), escondiendo un
+    # problema real de credenciales detrás de un resultado esperado.
+    if status_code in (401, 403):
+        raise DeudaClientError(
+            f"consulta-deuda {codigo_externo}: SIIC rechazó las credenciales configuradas "
+            f"(HTTP {status_code}: {body})"
+        )
+
+    if body.get("error") or not body.get("nro_cliente"):
+        raise ClienteNoEncontradoError(f"No se encontró ningún abonado con el número {codigo_externo}.")
+
+    items = [
+        ItemDeuda(
+            codigo_sucursal=str(item.get("codigo_sucursal", "")),
+            nro_comprobante=str(item.get("nro_comprobante", "")),
+            nro_suministro=str(item.get("nro_suministro", "")),
+            fecha=str(item.get("fecha", "")),
+            tipo=str(item.get("tipo", "")),
+            letra_comprobante=str(item.get("letra_comprobante", "")),
+            nro_autorizacion=str(item.get("nro_autorizacion", "")),
+            nro_cliente=str(item.get("nro_cliente", "")),
+            anio=int(item["anio"]),
+            mes=int(item["mes"]),
+            importe=_importe_firmado(item),
+            detalle=item.get("detalle", ""),
+            debito_credito=str(item.get("debito_credito", "")),
+        )
+        for item in body.get("deuda", [])
+    ]
+
+    return ResultadoConsultaDeuda(
+        codigo_externo_cliente=codigo_externo,
+        nombre_cliente=body.get("nombre", ""),
+        items=items,
+    )
 
 
 def get_deuda_client() -> DeudaClientInterface:

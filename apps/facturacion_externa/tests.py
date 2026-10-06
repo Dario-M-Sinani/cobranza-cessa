@@ -461,3 +461,60 @@ class TestEndpointComprobanteJson:
         respuesta = cliente.get(f"/api/externo/recibos-web/{solicitud.alias}/comprobante-json/")
 
         assert respuesta.status_code == 502
+
+
+@pytest.mark.django_db
+class TestConsultaClienteExterna:
+    """GET /api/externo/consulta/cliente/: deuda para cessa-laravel leída como
+    banco vía api-cobranzas (mismo SIIC donde se paga)."""
+
+    URL = "/api/externo/consulta/cliente/"
+
+    @pytest.fixture(autouse=True)
+    def _api_key(self, settings):
+        settings.API_KEY_CESSA_LARAVEL = "la-key-correcta"
+
+    def _cliente(self, key="la-key-correcta"):
+        cliente = APIClient()
+        if key:
+            cliente.credentials(HTTP_X_API_KEY=key)
+        return cliente
+
+    def test_sin_api_key_devuelve_403(self):
+        assert self._cliente(key=None).get(self.URL, {"nro_cliente": "115997"}).status_code == 403
+
+    def test_reenvia_solo_parametros_conocidos_y_devuelve_el_body_tal_cual(self, monkeypatch):
+        recibidos = {}
+
+        def fake(params):
+            recibidos.update(params)
+            return 200, {"nro_cliente": "115997", "nombre": "X", "deuda": [], "deuda_total": "0"}
+
+        monkeypatch.setattr("apps.facturacion_externa.views.consultar_cliente_via_cobranzas", fake)
+        respuesta = self._cliente().get(self.URL, {"nro_cliente": "115997", "ver_deuda": "si", "otro": "1"})
+
+        assert respuesta.status_code == 200
+        assert respuesta.json()["nro_cliente"] == "115997"
+        assert recibidos == {"nro_cliente": "115997", "ver_deuda": "si"}
+
+    def test_no_existe_reenvia_404_con_error(self, monkeypatch):
+        monkeypatch.setattr(
+            "apps.facturacion_externa.views.consultar_cliente_via_cobranzas",
+            lambda params: (404, {"error": "No existe ningún cliente con los datos introducidos", "code": 404}),
+        )
+        respuesta = self._cliente().get(self.URL, {"nro_cliente": "999999"})
+        assert respuesta.status_code == 404
+        assert "error" in respuesta.json()
+
+    def test_api_cobranzas_caida_devuelve_503_no_502(self, monkeypatch):
+        from services.deuda_client import DeudaClientError
+
+        def falla(params):
+            raise DeudaClientError("timeout")
+
+        monkeypatch.setattr("apps.facturacion_externa.views.consultar_cliente_via_cobranzas", falla)
+        respuesta = self._cliente().get(self.URL, {"nro_cliente": "115997"})
+        assert respuesta.status_code == 503
+
+    def test_sin_nro_cliente_devuelve_400(self):
+        assert self._cliente().get(self.URL).status_code == 400
