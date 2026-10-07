@@ -535,3 +535,29 @@ class CobroAgrupadoViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vie
         except TransaccionEnCursoError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         return Response(CobroAgrupadoSerializer(self.get_queryset().get(pk=grupo.pk)).data, status=status.HTTP_201_CREATED)
+
+
+class UltimoComprobanteView(APIView):
+    """El último cobro confirmado del usuario, para reimprimir su comprobante (tecla F9 del
+    panel): efectivo individual, efectivo de varios clientes (grupo) o QR ya pagado.
+    Responde `{"tipo": "efectivo"|"grupo"|"qr", "id": N}` o 404 si todavía no cobró nada."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        candidatos = []
+        efectivo = CobroEfectivo.objects.filter(usuario=request.user).order_by("-creado_en").first()
+        if efectivo:
+            tipo, pk = ("grupo", efectivo.grupo_id) if efectivo.grupo_id else ("efectivo", efectivo.pk)
+            candidatos.append((efectivo.creado_en, tipo, pk))
+        qr = (
+            TransaccionQR.objects.filter(usuario=request.user, estado=TransaccionQR.Estado.PAGADO)
+            .order_by("-actualizado_en")
+            .first()
+        )
+        if qr:
+            candidatos.append((qr.actualizado_en, "qr", qr.pk))
+        if not candidatos:
+            return Response({"detail": "Todavía no hay cobros registrados con tu usuario."}, status=status.HTTP_404_NOT_FOUND)
+        _, tipo, pk = max(candidatos)
+        return Response({"tipo": tipo, "id": pk})

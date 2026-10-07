@@ -77,7 +77,7 @@ $D/venv/bin/pip install -q -r $D/src/requirements/dev.txt
 cd $D/src && DATABASE_URL=sqlite:///$D/t.db SECRET_KEY=x ../venv/bin/python -m pytest -q
 ```
 `/tmp` se borra al reiniciar la .88: si falta el venv, se recrea con lo de arriba.
-Al 2026-10-07: 181 tests verdes.
+Al 2026-10-07: 185 tests verdes.
 
 ## 6. Diagnosticar un pago
 
@@ -145,6 +145,8 @@ Pantalla **Cobrar** (`/deuda` del frontend `cobranza-cessa-frontend`), desde 202
 - **Consumo (kWh)** en la deuda y en las facturas anteriores: sale de `/v1/clientes/{c}/facturas`
   del SIIC, cruzado por período + importe (best effort; pagadas: solo las 12 más nuevas).
 - **Facturas anteriores**: todas las pagadas (`/v1/clientes/{c}/pagos`) con PDF real.
+- **F9 en cualquier pantalla**: reimprime el comprobante del último cobro del usuario
+  (`GET /api/comprobantes/ultimo/`: efectivo, grupo o QR pagado). También hay botón en Cobrar.
 
 Desplegar el frontend (el `dist/` va en el repo; `/opt/cobranza-cessa-frontend` es de root):
 ```bash

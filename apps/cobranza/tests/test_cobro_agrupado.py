@@ -151,3 +151,30 @@ class TestConsumos:
     def test_sin_siic_configurado_no_rompe(self, settings):
         settings.SIIC_DEUDA_BASE_URL = ""
         assert siic_historial.consumos("1") == {}
+
+
+@pytest.mark.django_db
+class TestUltimoComprobante:
+    URL = "/api/comprobantes/ultimo/"
+
+    def test_sin_cobros_404(self, cajera):
+        assert _api(cajera).get(self.URL).status_code == 404
+
+    def test_efectivo_individual(self, cajera, deudas):
+        a, _ = deudas
+        r = _api(cajera).post("/api/cobros-efectivo/", {"deuda_id": a.pk, "monto_recibido": "50.00"}, format="json")
+        assert _api(cajera).get(self.URL).data == {"tipo": "efectivo", "id": r.data["id"]}
+
+    def test_el_mas_nuevo_es_un_grupo(self, cajera, deudas):
+        a, b = deudas
+        _api(cajera).post("/api/cobros-efectivo/", {"deuda_id": a.pk, "monto_recibido": "50.00"}, format="json")
+        r = _api(cajera).post(
+            "/api/cobros-agrupados/", {"monto_recibido": "100.00", "selecciones": [{"deuda_id": b.pk}]}, format="json"
+        )
+        assert _api(cajera).get(self.URL).data == {"tipo": "grupo", "id": r.data["id"]}
+
+    def test_no_ve_los_de_otra_cajera(self, cajera, deudas):
+        otra = Usuario.objects.create_user(username="caj-3", password="x", rol=Usuario.Rol.CAJERA, activo=True)
+        a, _ = deudas
+        _api(otra).post("/api/cobros-efectivo/", {"deuda_id": a.pk, "monto_recibido": "50.00"}, format="json")
+        assert _api(cajera).get(self.URL).status_code == 404

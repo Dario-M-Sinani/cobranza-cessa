@@ -11,6 +11,7 @@ from .views import (
     DashboardResumenView,
     FacturaViewSet,
     TransaccionQRViewSet,
+    UltimoComprobanteView,
 )
 
 router = DefaultRouter()
@@ -25,4 +26,5 @@ urlpatterns = [
     path("clientes/<str:codigo>/facturas-pagadas/", FacturasPagadasView.as_view(), name="facturas-pagadas"),
     path("clientes/<str:codigo>/facturas-pagadas/pdf/", FacturaPagadaPdfView.as_view(), name="factura-pagada-pdf"),
     path("dashboard/resumen/", DashboardResumenView.as_view(), name="dashboard-resumen"),
+    path("comprobantes/ultimo/", UltimoComprobanteView.as_view(), name="ultimo-comprobante"),
 ] + router.urls
