@@ -13,7 +13,7 @@ from apps.auditoria.models import LogAuditoria
 from services.cobranzas_banco_client import CobranzasBancoError, construir_detalle, get_cobranzas_banco_client
 from services.mc4_client import EstadoPagoMC4, MC4ClientError, SolicitudQR, get_mc4_client
 
-from .models import Caja, CobroEfectivo, Deuda, Factura, TransaccionQR
+from .models import Caja, CobroAgrupado, CobroEfectivo, Deuda, Factura, TransaccionQR
 
 QR_VENCIMIENTO_DIAS = 1  # SIP solo acepta fecha (no hora) de vencimiento.
 
@@ -282,6 +282,60 @@ def registrar_cobro_efectivo(
         )
 
     return cobro
+
+
+@transaction.atomic
+def registrar_cobro_efectivo_agrupado(
+    usuario, monto_recibido: Decimal, selecciones: list[tuple[Deuda, int | None]]
+) -> CobroAgrupado:
+    """Un solo pago en efectivo para varios clientes (`selecciones` = [(deuda, cantidad de
+    comprobantes o None = todo)]). Todo o nada: si una selección no es válida no se
+    registra ninguna. Cada cliente queda como su propio CobroEfectivo (con su Factura, que
+    se envía a api-cobranzas por separado como cualquier cobro); el grupo guarda lo
+    recibido y el vuelto reales."""
+    if not selecciones:
+        raise MontoInvalidoError("No hay clientes para cobrar.")
+    clientes = [deuda.cliente_id for deuda, _ in selecciones]
+    if len(set(clientes)) != len(clientes):
+        raise MontoInvalidoError("Un mismo cliente está dos veces en el cobro.")
+
+    resueltas = []
+    for deuda, cantidad in selecciones:
+        monto, items = resolver_seleccion(deuda, cantidad=cantidad)
+        if TransaccionQR.objects.filter(
+            deuda__cliente=deuda.cliente,
+            estado__in=[TransaccionQR.Estado.GENERADO, TransaccionQR.Estado.PENDIENTE_CONFIRMACION],
+        ).exists():
+            raise TransaccionEnCursoError(f"El cliente {deuda.cliente} ya tiene un QR de cobro pendiente.")
+        resueltas.append((deuda, monto, items))
+
+    total = sum((monto for _, monto, _ in resueltas), Decimal("0"))
+    if monto_recibido < total:
+        raise MontoRecibidoInsuficienteError(
+            f"El monto recibido (Bs. {monto_recibido}) es menor al total a cobrar (Bs. {total})."
+        )
+
+    caja_abierta = Caja.objects.filter(cajero=usuario, estado=Caja.Estado.ABIERTA).first()
+    grupo = CobroAgrupado.objects.create(
+        usuario=usuario, caja=caja_abierta, monto_total=total, monto_recibido=monto_recibido,
+        vuelto=monto_recibido - total,
+    )
+    for deuda, monto, items in resueltas:
+        cobro = CobroEfectivo.objects.create(
+            deuda=deuda, usuario=usuario, caja=caja_abierta, grupo=grupo, monto_snapshot=monto,
+            items_cobrados=items, monto_recibido=monto, vuelto=Decimal("0"),
+        )
+        factura = Factura.objects.create(cobro_efectivo=cobro)
+        LogAuditoria.objects.create(
+            usuario=usuario, accion="CobroEfectivo: registrado (agrupado)", entidad_afectada=f"CobroEfectivo:{cobro.pk}"
+        )
+        LogAuditoria.objects.create(
+            accion="Factura: creada tras cobro en efectivo", entidad_afectada=f"Factura:{factura.pk}"
+        )
+    LogAuditoria.objects.create(
+        usuario=usuario, accion="CobroAgrupado: registrado", entidad_afectada=f"CobroAgrupado:{grupo.pk}"
+    )
+    return grupo
 
 
 def reintentar_facturacion(transaccion: TransaccionQR) -> Factura:

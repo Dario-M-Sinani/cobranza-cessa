@@ -42,7 +42,7 @@ class TestFacturasPagadas:
 
         assert r.status_code == 200
         assert r.data["items"][0]["detalle"] == "NC. CONCILIACIÓN"
-        args, kwargs = get.call_args
+        args, kwargs = get.call_args_list[0]  # después vienen las de consumo (/facturas)
         assert args[0] == "http://siic.test/v1/clientes/115997/pagos"
         assert kwargs["params"] == {"limit": -1}
         assert kwargs["headers"] == {"Authorization": "tok"}

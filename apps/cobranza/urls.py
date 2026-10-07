@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     CajaViewSet,
+    CobroAgrupadoViewSet,
     CobroEfectivoViewSet,
     ConsultarDeudaView,
     FacturaPagadaPdfView,
@@ -15,6 +16,7 @@ from .views import (
 router = DefaultRouter()
 router.register("transacciones-qr", TransaccionQRViewSet, basename="transaccion-qr")
 router.register("cobros-efectivo", CobroEfectivoViewSet, basename="cobro-efectivo")
+router.register("cobros-agrupados", CobroAgrupadoViewSet, basename="cobro-agrupado")
 router.register("facturas", FacturaViewSet, basename="factura")
 router.register("cajas", CajaViewSet, basename="caja")
 

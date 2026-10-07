@@ -146,6 +146,12 @@ class CobroEfectivo(models.Model):
     items_cobrados = models.JSONField(default=list, blank=True, encoder=DjangoJSONEncoder)
     monto_recibido = models.DecimalField(max_digits=12, decimal_places=2)
     vuelto = models.DecimalField(max_digits=12, decimal_places=2)
+    # Cobro de varios clientes en un solo pago (ver CobroAgrupado). Dentro de un grupo
+    # cada cobro registra lo suyo como recibido exacto (vuelto 0); el dinero recibido y el
+    # vuelto reales están en el grupo.
+    grupo = models.ForeignKey(
+        "CobroAgrupado", on_delete=models.PROTECT, null=True, blank=True, related_name="cobros"
+    )
     creado_en = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -153,6 +159,28 @@ class CobroEfectivo(models.Model):
 
     def __str__(self):
         return f"CobroEfectivo#{self.pk} {self.monto_snapshot}"
+
+
+class CobroAgrupado(models.Model):
+    """Un solo pago en efectivo que cubre deudas de varios clientes (ej. una persona que
+    paga su casa y su negocio). Cada cliente queda como su propio CobroEfectivo, con su
+    Factura y su transacción en api-cobranzas-bancos; acá queda el total, lo recibido y el
+    vuelto que se entregó. Ver services.registrar_cobro_efectivo_agrupado()."""
+
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="cobros_agrupados")
+    caja = models.ForeignKey(
+        "Caja", on_delete=models.PROTECT, null=True, blank=True, related_name="cobros_agrupados"
+    )
+    monto_total = models.DecimalField(max_digits=12, decimal_places=2)
+    monto_recibido = models.DecimalField(max_digits=12, decimal_places=2)
+    vuelto = models.DecimalField(max_digits=12, decimal_places=2)
+    creado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-creado_en"]
+
+    def __str__(self):
+        return f"CobroAgrupado#{self.pk} {self.monto_total}"
 
 
 class Factura(models.Model):

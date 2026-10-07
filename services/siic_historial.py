@@ -12,6 +12,9 @@ en test, la API Nest :6012 sobre BKLDTA.
 """
 from __future__ import annotations
 
+import re
+from decimal import Decimal
+
 import requests
 from django.conf import settings
 
@@ -52,6 +55,66 @@ def facturas_pagadas(nro_cliente: str, timeout: int = 30) -> list[dict]:
     if not isinstance(body, dict):
         raise SiicHistorialError(f"pagos {nro_cliente}: respuesta inesperada")
     return _reparar_codificacion_recursivo(body.get("items") or [])
+
+
+MESES = {
+    "ENERO": 1, "FEBRERO": 2, "MARZO": 3, "ABRIL": 4, "MAYO": 5, "JUNIO": 6, "JULIO": 7,
+    "AGOSTO": 8, "SEPTIEMBRE": 9, "SETIEMBRE": 9, "OCTUBRE": 10, "NOVIEMBRE": 11, "DICIEMBRE": 12,
+}
+_PERIODO_EN_DETALLE = re.compile(r"([A-Z]+)\s*/\s*(\d{4})\s*$")
+
+
+def periodo_de_detalle(detalle: str) -> tuple[int, int] | None:
+    """"Fact Energia OCTUBRE/2025" → (2025, 10). El SIIC arma el detalle con el período."""
+    m = _PERIODO_EN_DETALLE.search((detalle or "").upper())
+    if not m or m.group(1) not in MESES:
+        return None
+    return int(m.group(2)), MESES[m.group(1)]
+
+
+def _clave_consumo(anio, mes, importe) -> tuple[int, int, Decimal] | None:
+    try:
+        return int(anio), int(mes), abs(Decimal(str(importe))).quantize(Decimal("0.01"))
+    except (TypeError, ValueError, ArithmeticError):
+        return None
+
+
+def consumos(nro_cliente: str, timeout: int = 15) -> dict[tuple[int, int, Decimal], dict]:
+    """Consumo (kWh) y lecturas de las facturas de consumo del cliente, por (año, mes, importe).
+
+    `GET /v1/clientes/{c}/facturas` trae año/mes del período, importe, lecturas y consumo,
+    pero no el número de comprobante: se cruza por período + importe. Pendientes: todas;
+    pagadas: las 12 más nuevas (límite del SIIC). Best effort: si el SIIC falla, vacío."""
+    try:
+        base, headers = _base()
+    except SiicHistorialError:
+        return {}
+    resultado: dict = {}
+    for estado in ("pendientes", "pagadas"):
+        try:
+            r = requests.get(
+                f"{base}/v1/clientes/{nro_cliente}/facturas", params={"estado": estado}, headers=headers, timeout=timeout
+            )
+            filas = r.json() if r.status_code == 200 else []
+        except (requests.RequestException, ValueError):
+            continue
+        for fila in filas if isinstance(filas, list) else []:
+            clave = _clave_consumo(fila.get("anio"), fila.get("mes"), fila.get("importe"))
+            if clave:
+                resultado[clave] = {
+                    "consumo_kwh": fila.get("consumo"),
+                    "lectura_anterior": fila.get("lectura_anterior"),
+                    "lectura_actual": fila.get("lectura_actual"),
+                }
+    return resultado
+
+
+def consumo_de(item: dict, tabla: dict, periodo: tuple[int, int] | None = None) -> dict | None:
+    """Busca el consumo de un comprobante (pendiente: trae anio/mes; pagado: se pasa el
+    período sacado del detalle)."""
+    anio, mes = periodo or (item.get("anio"), item.get("mes"))
+    clave = _clave_consumo(anio, mes, item.get("importe"))
+    return tabla.get(clave) if clave else None
 
 
 def factura_pdf(clave: dict, timeout: int = 60) -> bytes:

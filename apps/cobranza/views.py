@@ -23,6 +23,7 @@ from .models import (
     AperturaCajaFueraDeHorario,
     Caja,
     CajaOperacionInvalida,
+    CobroAgrupado,
     CobroEfectivo,
     Deuda,
     Factura,
@@ -33,12 +34,14 @@ from .serializers import (
     AbrirCajaSerializer,
     AperturaCajaFueraDeHorarioSerializer,
     CajaSerializer,
+    CobroAgrupadoSerializer,
     CobroEfectivoSerializer,
     ConsultarDeudaSerializer,
     DeudaSerializer,
     FacturaSerializer,
     GenerarTransaccionQRSerializer,
     ReabrirCajaSerializer,
+    RegistrarCobroAgrupadoSerializer,
     RegistrarCobroEfectivoSerializer,
     TransaccionQRSerializer,
 )
@@ -51,6 +54,7 @@ from .services import (
     TransaccionEnCursoError,
     generar_transaccion_qr,
     registrar_cobro_efectivo,
+    registrar_cobro_efectivo_agrupado,
 )
 from .services import reintentar_facturacion as reintentar_facturacion_servicio
 from .reportes import resumen_caja, resumen_dashboard
@@ -145,12 +149,20 @@ class ConsultarDeudaView(APIView):
             codigo_externo=codigo_externo,
             defaults={"nombre": resultado.nombre_cliente or codigo_externo},
         )
+        items = [asdict(item) for item in resultado.items]
+        # Consumo (kWh) para mostrar al cajero; best effort, no frena el cobro si el SIIC falla.
+        # construir_detalle() arma el detalle de pago con campos explícitos: esta clave extra
+        # no viaja a api-cobranzas.
+        tabla_consumos = siic_historial.consumos(codigo_externo) if items else {}
+        for item in items:
+            datos = siic_historial.consumo_de(item, tabla_consumos)
+            item["consumo_kwh"] = datos["consumo_kwh"] if datos else None
         deuda = Deuda.objects.create(
             cliente=cliente,
             monto=resultado.monto_total,
             # Snapshot crudo por ítem -- lo necesita enviar_factura_a_siic()
             # para armar el "detalle" real que exige api-cobranzas-bancos.
-            items_snapshot=[asdict(item) for item in resultado.items],
+            items_snapshot=items,
         )
 
         return Response(DeudaSerializer(deuda).data, status=status.HTTP_201_CREATED)
@@ -453,6 +465,11 @@ class FacturasPagadasView(APIView):
             items = siic_historial.facturas_pagadas(codigo)
         except siic_historial.SiicHistorialError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+        tabla_consumos = siic_historial.consumos(codigo) if items else {}
+        for item in items:
+            periodo = siic_historial.periodo_de_detalle(item.get("detalle", ""))
+            datos = siic_historial.consumo_de(item, tabla_consumos, periodo) if periodo else None
+            item["consumo_kwh"] = datos["consumo_kwh"] if datos else None
         return Response({"items": items})
 
 
@@ -482,3 +499,39 @@ class FacturaPagadaPdfView(APIView):
         respuesta = HttpResponse(pdf, content_type="application/pdf")
         respuesta["Content-Disposition"] = f'inline; filename="factura-{codigo}-{clave.get("nro_comprobante")}.pdf"'
         return respuesta
+
+
+class CobroAgrupadoViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    """Un pago en efectivo que cubre deudas de varios clientes. POST con
+    `{"monto_recibido": "...", "selecciones": [{"deuda_id": 1, "cantidad_comprobantes": 2}, ...]}`."""
+
+    serializer_class = CobroAgrupadoSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = CobroAgrupado.objects.select_related("usuario", "caja").prefetch_related(
+            "cobros__deuda__cliente", "cobros__usuario", "cobros__caja"
+        )
+        if self.request.user.rol == Usuario.Rol.CAJERA:
+            qs = qs.filter(usuario=self.request.user)
+        return qs
+
+    def get_permissions(self):
+        if self.action == "create":
+            return [IsAuthenticated(), EsCajeraActiva()]
+        return super().get_permissions()
+
+    def create(self, request, *args, **kwargs):
+        entrada = RegistrarCobroAgrupadoSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        datos = entrada.validated_data
+        selecciones = [(s["deuda"], s.get("cantidad_comprobantes")) for s in datos["selecciones"]]
+        try:
+            grupo = registrar_cobro_efectivo_agrupado(
+                usuario=request.user, monto_recibido=datos["monto_recibido"], selecciones=selecciones
+            )
+        except (DeudaSinSaldoError, MontoInvalidoError, MontoRecibidoInsuficienteError) as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except TransaccionEnCursoError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        return Response(CobroAgrupadoSerializer(self.get_queryset().get(pk=grupo.pk)).data, status=status.HTTP_201_CREATED)

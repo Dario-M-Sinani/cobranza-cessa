@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from apps.clientes.serializers import ClienteSerializer
 
-from .models import AperturaCajaFueraDeHorario, Caja, CobroEfectivo, Deuda, Factura, TransaccionQR
+from .models import AperturaCajaFueraDeHorario, Caja, CobroAgrupado, CobroEfectivo, Deuda, Factura, TransaccionQR
 
 
 class DeudaSerializer(serializers.ModelSerializer):
@@ -128,3 +128,25 @@ class AperturaCajaFueraDeHorarioSerializer(serializers.ModelSerializer):
         model = AperturaCajaFueraDeHorario
         fields = ["id", "caja", "usuario", "motivo", "creado_en"]
         read_only_fields = fields
+
+
+class CobroAgrupadoSerializer(serializers.ModelSerializer):
+    usuario = serializers.StringRelatedField(read_only=True)
+    caja = serializers.PrimaryKeyRelatedField(read_only=True)
+    cobros = CobroEfectivoSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = CobroAgrupado
+        fields = ["id", "usuario", "caja", "monto_total", "monto_recibido", "vuelto", "creado_en", "cobros"]
+        read_only_fields = fields
+
+
+class _SeleccionCobroSerializer(serializers.Serializer):
+    deuda_id = serializers.PrimaryKeyRelatedField(queryset=Deuda.objects.select_related("cliente"), source="deuda")
+    # Los N comprobantes más antiguos; sin el campo, toda la deuda.
+    cantidad_comprobantes = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+
+
+class RegistrarCobroAgrupadoSerializer(serializers.Serializer):
+    monto_recibido = serializers.DecimalField(max_digits=12, decimal_places=2)
+    selecciones = _SeleccionCobroSerializer(many=True, allow_empty=False)

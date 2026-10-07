@@ -77,7 +77,7 @@ $D/venv/bin/pip install -q -r $D/src/requirements/dev.txt
 cd $D/src && DATABASE_URL=sqlite:///$D/t.db SECRET_KEY=x ../venv/bin/python -m pytest -q
 ```
 `/tmp` se borra al reiniciar la .88: si falta el venv, se recrea con lo de arriba.
-Al 2026-10-07: 163 tests verdes.
+Al 2026-10-07: 181 tests verdes.
 
 ## 6. Diagnosticar un pago
 
@@ -138,6 +138,13 @@ Pantalla **Cobrar** (`/deuda` del frontend `cobranza-cessa-frontend`), desde 202
   el total de un prefijo.
 - Efectivo: montos sugeridos, vuelto en vivo y desglose en billetes/monedas. Teclado: Enter
   busca y cobra, Esc pasa al siguiente cliente.
+- **Varios clientes en un pago** (efectivo): se buscan uno tras otro y se suman al cobro;
+  `POST /api/cobros-agrupados/` registra todo o nada. Cada cliente queda como su propio
+  `CobroEfectivo` (con su factura y su transacción en api-cobranzas) dentro de un
+  `CobroAgrupado` que guarda lo recibido y el vuelto. El QR sigue siendo de a un cliente.
+- **Consumo (kWh)** en la deuda y en las facturas anteriores: sale de `/v1/clientes/{c}/facturas`
+  del SIIC, cruzado por período + importe (best effort; pagadas: solo las 12 más nuevas).
+- **Facturas anteriores**: todas las pagadas (`/v1/clientes/{c}/pagos`) con PDF real.
 
 Desplegar el frontend (el `dist/` va en el repo; `/opt/cobranza-cessa-frontend` es de root):
 ```bash
