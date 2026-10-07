@@ -15,6 +15,8 @@ from rest_framework.views import APIView
 from apps.clientes.models import Cliente
 from apps.usuarios.models import Usuario
 from apps.usuarios.permissions import EsCajeraActiva, EsSupervisorOAdmin
+from apps.auditoria.models import LogAuditoria
+from services import siic_historial
 from services.deuda_client import ClienteNoEncontradoError, DeudaClientError, get_deuda_client
 
 from .models import (
@@ -431,3 +433,52 @@ class CajaViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gen
             "facturas_registradas": resumen["facturas_registradas"],
             "qr_pendientes_de_confirmar": resumen["qr_pendientes_de_confirmar"],
         })
+
+
+def _solo_digitos(codigo: str) -> str | None:
+    codigo = (codigo or "").strip()
+    return codigo if codigo.isdigit() and len(codigo) <= 10 else None
+
+
+class FacturasPagadasView(APIView):
+    """Todas las facturas ya pagadas del cliente (por cualquier canal), de la más nueva a
+    la más vieja, leídas del SIIC (services/siic_historial.py). Solo lectura."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, codigo):
+        if not _solo_digitos(codigo):
+            return Response({"detail": "Número de cliente inválido."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            items = siic_historial.facturas_pagadas(codigo)
+        except siic_historial.SiicHistorialError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response({"items": items})
+
+
+class FacturaPagadaPdfView(APIView):
+    """PDF de una factura ya pagada (reimpresión). El body es la clave del comprobante tal
+    como vino en FacturasPagadasView; tiene que ser del mismo cliente de la URL."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, codigo):
+        if not _solo_digitos(codigo):
+            return Response({"detail": "Número de cliente inválido."}, status=status.HTTP_400_BAD_REQUEST)
+        clave = request.data if isinstance(request.data, dict) else {}
+        if any(campo not in clave for campo in siic_historial.CAMPOS_CLAVE):
+            return Response({"detail": "Falta la clave completa del comprobante."}, status=status.HTTP_400_BAD_REQUEST)
+        if str(clave.get("nro_cliente")).strip() != codigo:
+            return Response({"detail": "El comprobante no es de este cliente."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            pdf = siic_historial.factura_pdf(clave)
+        except siic_historial.SiicHistorialError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+        LogAuditoria.objects.create(
+            usuario=request.user,
+            accion="Factura SIIC: reimpresión",
+            entidad_afectada=f"Cliente:{codigo} Comprobante:{clave.get('nro_comprobante')}",
+        )
+        respuesta = HttpResponse(pdf, content_type="application/pdf")
+        respuesta["Content-Disposition"] = f'inline; filename="factura-{codigo}-{clave.get("nro_comprobante")}.pdf"'
+        return respuesta
