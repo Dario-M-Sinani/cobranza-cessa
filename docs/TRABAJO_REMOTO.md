@@ -77,7 +77,7 @@ $D/venv/bin/pip install -q -r $D/src/requirements/dev.txt
 cd $D/src && DATABASE_URL=sqlite:///$D/t.db SECRET_KEY=x ../venv/bin/python -m pytest -q
 ```
 `/tmp` se borra al reiniciar la .88: si falta el venv, se recrea con lo de arriba.
-Al 2026-10-06: 151 tests verdes.
+Al 2026-10-07: 163 tests verdes.
 
 ## 6. Diagnosticar un pago
 
@@ -126,7 +126,26 @@ Clientes de test con deuda (06/10): 101194, 101591, 102782, 105164, 107943, 1159
 Si el panel de cajeras también tiene que leer la deuda por la .102:
 `DEUDA_CLIENT_CLASS=services.deuda_client.CobranzasBancoDeudaClient` en el `.env` + reinicio.
 
-## 9. Pendientes
+## 9. Panel de cajera (cobro en ventanilla)
+
+Pantalla **Cobrar** (`/deuda` del frontend `cobranza-cessa-frontend`), desde 2026-10-07:
+
+- Lista los comprobantes pendientes en el orden en que SIIC exige pagarlos. Se cobra un
+  **prefijo**: marcar uno marca los anteriores. Las notas de crédito restan en su lugar.
+- Backend: `cantidad_comprobantes` en `POST /api/cobros-efectivo/` y `/api/transacciones-qr/`;
+  cada cobro guarda `items_cobrados` y al facturar se pagan **solo esos** (antes un cobro
+  parcial mandaba a pagar la deuda entera). Un `monto` suelto solo se acepta si coincide con
+  el total de un prefijo.
+- Efectivo: montos sugeridos, vuelto en vivo y desglose en billetes/monedas. Teclado: Enter
+  busca y cobra, Esc pasa al siguiente cliente.
+
+Desplegar el frontend (el `dist/` va en el repo; `/opt/cobranza-cessa-frontend` es de root):
+```bash
+sudo git -C /opt/cobranza-cessa-frontend -c safe.directory=/opt/cobranza-cessa-frontend pull --ff-only
+```
+nginx sirve `dist/` directo: no hace falta reiniciar nada.
+
+## 10. Pendientes
 
 - **Producción:** gateway de prod (.102 prod + SIIC prod + credenciales propias), alta de CESSA Web
   como banco, horario y cierre de caja, deuda que cambia entre QR y pago, anulaciones, alertas.

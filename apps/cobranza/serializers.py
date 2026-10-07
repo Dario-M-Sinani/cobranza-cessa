@@ -7,10 +7,13 @@ from .models import AperturaCajaFueraDeHorario, Caja, CobroEfectivo, Deuda, Fact
 
 class DeudaSerializer(serializers.ModelSerializer):
     cliente = ClienteSerializer(read_only=True)
+    # Comprobantes pendientes en el orden en que SIIC exige pagarlos (importe firmado:
+    # negativo = nota de crédito). El panel cobra un prefijo de esta lista.
+    items = serializers.JSONField(source="items_snapshot", read_only=True)
 
     class Meta:
         model = Deuda
-        fields = ["id", "cliente", "monto", "fecha_consulta"]
+        fields = ["id", "cliente", "monto", "fecha_consulta", "items"]
         read_only_fields = fields
 
 
@@ -52,15 +55,17 @@ class TransaccionQRSerializer(serializers.ModelSerializer):
         model = TransaccionQR
         fields = [
             "id", "deuda", "usuario", "caja", "id_operacion_mc4", "monto_snapshot",
-            "estado", "creado_en", "actualizado_en", "factura", "imagen_qr_base64",
+            "estado", "creado_en", "actualizado_en", "factura", "imagen_qr_base64", "items_cobrados",
         ]
         read_only_fields = [campo for campo in fields if campo != "imagen_qr_base64"]
 
 
 class GenerarTransaccionQRSerializer(serializers.Serializer):
     deuda_id = serializers.PrimaryKeyRelatedField(queryset=Deuda.objects.all(), source="deuda")
-    # Adelanto opcional: si no se manda, se cobra la deuda completa.
+    # Qué cobrar (ver resolver_seleccion): los N comprobantes más antiguos, o un monto que
+    # coincida con alguno de esos totales. Sin ninguno, la deuda completa.
     monto = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    cantidad_comprobantes = serializers.IntegerField(min_value=1, required=False, allow_null=True)
 
 
 class CobroEfectivoSerializer(serializers.ModelSerializer):
@@ -73,7 +78,7 @@ class CobroEfectivoSerializer(serializers.ModelSerializer):
         model = CobroEfectivo
         fields = [
             "id", "deuda", "usuario", "caja", "monto_snapshot", "monto_recibido",
-            "vuelto", "creado_en", "factura",
+            "vuelto", "creado_en", "factura", "items_cobrados",
         ]
         read_only_fields = fields
 
@@ -81,8 +86,10 @@ class CobroEfectivoSerializer(serializers.ModelSerializer):
 class RegistrarCobroEfectivoSerializer(serializers.Serializer):
     deuda_id = serializers.PrimaryKeyRelatedField(queryset=Deuda.objects.all(), source="deuda")
     monto_recibido = serializers.DecimalField(max_digits=12, decimal_places=2)
-    # Adelanto opcional: si no se manda, se cobra la deuda completa.
+    # Qué cobrar (ver resolver_seleccion): los N comprobantes más antiguos, o un monto que
+    # coincida con alguno de esos totales. Sin ninguno, la deuda completa.
     monto_a_cobrar = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    cantidad_comprobantes = serializers.IntegerField(min_value=1, required=False, allow_null=True)
 
 
 class CajaSerializer(serializers.ModelSerializer):

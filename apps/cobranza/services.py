@@ -54,28 +54,80 @@ def _alias(transaccion: TransaccionQR) -> str:
     return f"txqr-{transaccion.pk}"
 
 
-def _validar_monto_a_cobrar(deuda: Deuda, monto: Decimal | None) -> Decimal:
-    """Resuelve y valida el monto a cobrar: por defecto (sin adelanto) es el
-    total de la deuda; si se pide un adelanto, tiene que ser positivo y no
-    superar ese total -- este sistema no lleva un saldo vivo propio, solo
-    registra localmente cuánto se cobró en este momento (la próxima consulta
-    de deuda vuelve a traer lo que diga SIIC, este cobro no se le informa)."""
+def _importe_item(item: dict) -> Decimal:
+    # items_snapshot guarda el importe ya firmado (ItemDeuda.importe: negativo = crédito).
+    return Decimal(str(item.get("importe", 0)))
+
+
+def resolver_seleccion(
+    deuda: Deuda, monto: Decimal | None = None, cantidad: int | None = None
+) -> tuple[Decimal, list[dict]]:
+    """Qué se cobra: `(monto, comprobantes)`.
+
+    SIIC cobra comprobantes **enteros** y **del más antiguo al más nuevo**: cada
+    pago tiene que ser el pendiente más antiguo (vencimiento, tipo), si no responde
+    "existen deudas más antiguas". La consulta de deuda ya los trae en ese orden,
+    así que lo único válido es un prefijo de `items_snapshot` (las notas de crédito
+    entran en su lugar, restando). Antes se aceptaba cualquier monto parcial y al
+    facturar se mandaba a pagar la deuda entera.
+
+    - `cantidad`: los N comprobantes más antiguos.
+    - `monto`: tiene que coincidir con el total de algún prefijo.
+    - ninguno: la deuda completa.
+
+    Una deuda sin comprobantes guardados (datos viejos/demo) mantiene el criterio
+    anterior: cualquier monto > 0 que no supere el total."""
     if deuda.monto <= 0:
         raise DeudaSinSaldoError(f"El cliente {deuda.cliente} no tiene deuda pendiente para cobrar.")
 
-    if monto is None:
-        return deuda.monto
+    items = list(deuda.items_snapshot or [])
+    if not items:
+        if cantidad is not None:
+            raise MontoInvalidoError("Esta consulta no tiene el detalle de comprobantes; vuelve a consultar la deuda.")
+        if monto is None:
+            return deuda.monto, []
+        if monto <= 0 or monto > deuda.monto:
+            raise MontoInvalidoError(
+                f"El monto a cobrar (Bs. {monto}) tiene que ser mayor a 0 y no puede superar "
+                f"la deuda total (Bs. {deuda.monto})."
+            )
+        return monto, []
 
-    if monto <= 0 or monto > deuda.monto:
+    acumulados = []
+    total = Decimal("0")
+    for item in items:
+        total += _importe_item(item)
+        acumulados.append(total)
+
+    if cantidad is not None:
+        if not 1 <= cantidad <= len(items):
+            raise MontoInvalidoError(f"Hay {len(items)} comprobantes pendientes; no se pueden cobrar {cantidad}.")
+        n = cantidad
+    elif monto is not None:
+        coincidencias = [i + 1 for i, acumulado in enumerate(acumulados) if acumulado == monto and acumulado > 0]
+        if not coincidencias:
+            posibles = ", ".join(f"Bs. {a}" for a in acumulados if a > 0)
+            raise MontoInvalidoError(
+                f"SIIC cobra comprobantes completos, del más antiguo al más nuevo: Bs. {monto} no "
+                f"corresponde a ninguna selección. Montos posibles: {posibles}."
+            )
+        n = coincidencias[0]
+    else:
+        n = len(items)
+
+    a_cobrar = acumulados[n - 1]
+    if a_cobrar <= 0:
         raise MontoInvalidoError(
-            f"El monto a cobrar (Bs. {monto}) tiene que ser mayor a 0 y no puede superar "
-            f"la deuda total (Bs. {deuda.monto})."
+            "Los comprobantes elegidos suman Bs. 0 o menos (las notas de crédito los cubren); "
+            "agrega el siguiente comprobante."
         )
-    return monto
+    return a_cobrar, items[:n]
 
 
 @transaction.atomic
-def generar_transaccion_qr(deuda: Deuda, usuario, monto: Decimal | None = None) -> TransaccionQR:
+def generar_transaccion_qr(
+    deuda: Deuda, usuario, monto: Decimal | None = None, cantidad_comprobantes: int | None = None
+) -> TransaccionQR:
     """Crea la TransaccionQR y genera el QR contra MC4/SIP. Si la pasarela
     falla, la transacción queda registrada en ERROR (nunca a medio crear).
 
@@ -84,7 +136,7 @@ def generar_transaccion_qr(deuda: Deuda, usuario, monto: Decimal | None = None) 
     cajero si tiene una (igual que `registrar_cobro_efectivo`), para que el
     resumen de cierre de caja (`reportes.resumen_caja`) incluya también los
     QR generados en el turno, no solo el efectivo."""
-    monto_a_cobrar = _validar_monto_a_cobrar(deuda, monto)
+    monto_a_cobrar, items_cobrados = resolver_seleccion(deuda, monto, cantidad_comprobantes)
 
     ya_en_curso = TransaccionQR.objects.filter(
         deuda__cliente=deuda.cliente,
@@ -95,7 +147,7 @@ def generar_transaccion_qr(deuda: Deuda, usuario, monto: Decimal | None = None) 
 
     caja_abierta = Caja.objects.filter(cajero=usuario, estado=Caja.Estado.ABIERTA).first()
     transaccion = TransaccionQR.objects.create(
-        deuda=deuda, usuario=usuario, monto_snapshot=monto_a_cobrar, caja=caja_abierta
+        deuda=deuda, usuario=usuario, monto_snapshot=monto_a_cobrar, items_cobrados=items_cobrados, caja=caja_abierta
     )
 
     solicitud = SolicitudQR(
@@ -174,7 +226,11 @@ def crear_factura(transaccion: TransaccionQR) -> Factura:
 
 @transaction.atomic
 def registrar_cobro_efectivo(
-    deuda: Deuda, usuario, monto_recibido: Decimal, monto_a_cobrar: Decimal | None = None
+    deuda: Deuda,
+    usuario,
+    monto_recibido: Decimal,
+    monto_a_cobrar: Decimal | None = None,
+    cantidad_comprobantes: int | None = None,
 ) -> CobroEfectivo:
     """Registra un cobro en efectivo. A diferencia del QR no depende de una
     pasarela externa: se confirma al instante, así que la Factura se crea
@@ -190,7 +246,7 @@ def registrar_cobro_efectivo(
     obligatorio todavía: si el cajero no abrió caja, el cobro igual se
     registra con `caja=None`. Endurecer esto a "obligatorio" queda como
     decisión pendiente de negocio, no técnica."""
-    monto_final = _validar_monto_a_cobrar(deuda, monto_a_cobrar)
+    monto_final, items_cobrados = resolver_seleccion(deuda, monto_a_cobrar, cantidad_comprobantes)
 
     ya_en_curso = TransaccionQR.objects.filter(
         deuda__cliente=deuda.cliente,
@@ -211,6 +267,7 @@ def registrar_cobro_efectivo(
         usuario=usuario,
         caja=caja_abierta,
         monto_snapshot=monto_final,
+        items_cobrados=items_cobrados,
         monto_recibido=monto_recibido,
         vuelto=monto_recibido - monto_final,
     )
@@ -257,7 +314,10 @@ def enviar_factura_a_siic(factura: Factura) -> Factura:
         return factura  # ya se envió -- idempotente, no se vuelve a pagar.
 
     deuda = factura.origen.deuda
-    if not deuda.items_snapshot:
+    # Solo los comprobantes que cubre este cobro; los cobros anteriores al campo
+    # (lista vacía) cubrían la deuda completa.
+    items_a_pagar = factura.origen.items_cobrados or deuda.items_snapshot
+    if not items_a_pagar:
         _marcar_error_envio(
             factura,
             "La deuda no tiene guardado el detalle de SIIC (items_snapshot) -- no se puede "
@@ -275,7 +335,7 @@ def enviar_factura_a_siic(factura: Factura) -> Factura:
             factura.cobranzas_uuid = uuid
             factura.save(update_fields=["cobranzas_uuid"])
 
-        detalle = construir_detalle(deuda.items_snapshot, nro_cliente_fallback=deuda.cliente.codigo_externo)
+        detalle = construir_detalle(items_a_pagar, nro_cliente_fallback=deuda.cliente.codigo_externo)
         cliente.pagar_transaccion_propia(uuid, detalle)
 
         comprobante_pdf = cliente.obtener_comprobante_pdf(uuid)

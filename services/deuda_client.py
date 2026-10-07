@@ -60,6 +60,14 @@ class ItemDeuda:
     importe: Decimal
     detalle: str
     debito_credito: str
+    # Opcionales (default vacío para no romper snapshots viejos ni dobles de
+    # prueba): api-cobranzas-bancos los recibe en el `detalle` del pago
+    # (construir_detalle) y el panel muestra el vencimiento. SIIC ya devuelve la
+    # deuda en el orden en que exige pagarla (vencimiento, tipo).
+    fecha_vencimiento: str = ""
+    fecha_autorizacion: str = ""
+    otras_ventas_codigo: str = ""
+    imprimir_recibo: str = ""
 
 
 @dataclass(frozen=True)
@@ -236,6 +244,10 @@ def _resultado_desde_respuesta(codigo_externo: str, status_code: int, body: dict
             importe=_importe_firmado(item),
             detalle=item.get("detalle", ""),
             debito_credito=str(item.get("debito_credito", "")),
+            fecha_vencimiento=str(item.get("fecha_vencimiento") or ""),
+            fecha_autorizacion=str(item.get("fecha_autorizacion") or ""),
+            otras_ventas_codigo=str(item.get("otras_ventas_codigo") or ""),
+            imprimir_recibo=str(item.get("imprimir_recibo") or ""),
         )
         for item in body.get("deuda", [])
     ]

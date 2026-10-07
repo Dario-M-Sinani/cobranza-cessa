@@ -69,6 +69,10 @@ class TransaccionQR(models.Model):
     # la Deuda "en vivo": si la deuda cambia después, esta transacción sigue
     # representando lo que el cliente efectivamente pagó (o va a pagar).
     monto_snapshot = models.DecimalField(max_digits=12, decimal_places=2)
+    # Comprobantes de SIIC que cubre este cobro (prefijo de deuda.items_snapshot,
+    # en el orden en que SIIC exige pagarlos). Es lo que se manda a pagar al
+    # facturar; vacío = cobro anterior a este campo -> se usa la deuda completa.
+    items_cobrados = models.JSONField(default=list, blank=True, encoder=DjangoJSONEncoder)
     estado = models.CharField(max_length=30, choices=Estado.choices, default=Estado.GENERADO)
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
@@ -136,6 +140,10 @@ class CobroEfectivo(models.Model):
         "Caja", on_delete=models.PROTECT, null=True, blank=True, related_name="cobros_efectivo"
     )
     monto_snapshot = models.DecimalField(max_digits=12, decimal_places=2)
+    # Comprobantes de SIIC que cubre este cobro (prefijo de deuda.items_snapshot,
+    # en el orden en que SIIC exige pagarlos). Es lo que se manda a pagar al
+    # facturar; vacío = cobro anterior a este campo -> se usa la deuda completa.
+    items_cobrados = models.JSONField(default=list, blank=True, encoder=DjangoJSONEncoder)
     monto_recibido = models.DecimalField(max_digits=12, decimal_places=2)
     vuelto = models.DecimalField(max_digits=12, decimal_places=2)
     creado_en = models.DateTimeField(auto_now_add=True)

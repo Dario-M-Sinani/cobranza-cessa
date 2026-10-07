@@ -179,9 +179,12 @@ class TransaccionQRViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vie
         entrada.is_valid(raise_exception=True)
         deuda = entrada.validated_data["deuda"]
         monto = entrada.validated_data.get("monto")
+        cantidad = entrada.validated_data.get("cantidad_comprobantes")
 
         try:
-            transaccion = generar_transaccion_qr(deuda=deuda, usuario=request.user, monto=monto)
+            transaccion = generar_transaccion_qr(
+                deuda=deuda, usuario=request.user, monto=monto, cantidad_comprobantes=cantidad
+            )
         except DeudaSinSaldoError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except MontoInvalidoError as exc:
@@ -299,10 +302,15 @@ class CobroEfectivoViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vie
         deuda = entrada.validated_data["deuda"]
         monto_recibido = entrada.validated_data["monto_recibido"]
         monto_a_cobrar = entrada.validated_data.get("monto_a_cobrar")
+        cantidad = entrada.validated_data.get("cantidad_comprobantes")
 
         try:
             cobro = registrar_cobro_efectivo(
-                deuda=deuda, usuario=request.user, monto_recibido=monto_recibido, monto_a_cobrar=monto_a_cobrar
+                deuda=deuda,
+                usuario=request.user,
+                monto_recibido=monto_recibido,
+                monto_a_cobrar=monto_a_cobrar,
+                cantidad_comprobantes=cantidad,
             )
         except DeudaSinSaldoError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
