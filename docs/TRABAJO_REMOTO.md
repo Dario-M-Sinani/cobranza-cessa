@@ -93,6 +93,7 @@ Cómo leer el resultado:
 
 | Error en la solicitud | Causa | Qué hacer |
 |---|---|---|
+| `La deuda cambió desde que se generó el QR: ...` | El gateway re-consultó la deuda antes de pagar y algún comprobante ya no está pendiente, cambió de importe o hay uno más antiguo sin incluir. No se creó transacción | Generar un QR nuevo con la deuda actual |
 | `La deuda no existe con los datos proporcionados` | Documentos leídos de otro SIIC (prod) o deuda que cambió desde el QR | Que cessa-laravel lea la deuda por el gateway (flag) |
 | `El operador no puede aperturar caja fuera de horario (07:50–18:50)` | Pago fuera de horario de caja | Se reintenta; decisión pendiente para prod |
 | `ha fallado previamente` | La transacción en api-cobranzas quedó FALLIDA | El gateway crea una nueva al reintentar |
