@@ -124,6 +124,8 @@ Clientes de test con deuda (06/10): 101194, 101591, 102782, 105164, 107943, 1159
 3. Pagar con QR un cliente de test; `dj ver_liquidaciones -n 1 --remoto` → `facturado`.
 4. ↻ Actualizar en el front: la deuda baja.
 
+En el `.env` del gateway, el banco con que queda registrado cada pago web en el SIIC: `COBRANZAS_BANCO_DOCUMENTO_BANCO_ID_BISA=4` y `_BNB=5` (catálogo `/v1/bancos` de la .102 test; ver `dj verificar_cobranzas_banco`). Sin ellos, todo queda como `COBRANZAS_BANCO_DOCUMENTO_BANCO_ID`.
+
 Si el panel de cajeras también tiene que leer la deuda por la .102:
 `DEUDA_CLIENT_CLASS=services.deuda_client.CobranzasBancoDeudaClient` en el `.env` + reinicio.
 
