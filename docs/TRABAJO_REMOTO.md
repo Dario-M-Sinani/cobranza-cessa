@@ -149,6 +149,8 @@ Pantalla **Cobrar** (`/deuda` del frontend `cobranza-cessa-frontend`), desde 202
 - **Consumo (kWh)** en la deuda y en las facturas anteriores: sale de `/v1/clientes/{c}/facturas`
   del SIIC, cruzado por período + importe (best effort; pagadas: solo las 12 más nuevas).
 - **Facturas anteriores**: todas las pagadas (`/v1/clientes/{c}/pagos`) con PDF real.
+- **Pagos web** (supervisor/admin, `/pagos-web`): las liquidaciones de cessa-laravel con estado, motivo, PDF,
+  estado en api-cobranzas y "Reintentar" (`/api/liquidaciones/`, mismo `liquidar_solicitud`).
 - **F9 en cualquier pantalla**: reimprime el comprobante del último cobro del usuario
   (`GET /api/comprobantes/ultimo/`: efectivo, grupo o QR pagado). También hay botón en Cobrar.
 

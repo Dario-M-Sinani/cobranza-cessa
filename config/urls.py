@@ -11,5 +11,6 @@ urlpatterns = [
     path("api/", include("apps.usuarios.urls")),
     path("api/", include("apps.cobranza.urls")),
     path("api/", include("apps.auditoria.urls")),
+    path("api/", include("apps.facturacion_externa.urls_panel")),
     path("api/externo/", include("apps.facturacion_externa.urls")),
 ]
