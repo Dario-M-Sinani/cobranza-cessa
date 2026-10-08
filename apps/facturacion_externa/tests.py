@@ -645,7 +645,12 @@ class TestVerificacionDeuda:
     def _liquidar(self, monkeypatch, detalle, fake=None, **overrides):
         fake = fake or FakeCobranzasBancoClientDeTest()
         monkeypatch.setattr(facturacion_services, "get_cobranzas_banco_client", lambda: fake)
-        solicitud = _solicitud(nro_cliente="115997", detalle=detalle, **overrides)
+        # Monto coherente con el detalle (si no, lo frena antes el control de monto).
+        monto = sum(
+            (-abs(Decimal(d["importe"])) if d["debito_credito"] == "CREDITO" else abs(Decimal(d["importe"])))
+            for d in detalle
+        )
+        solicitud = _solicitud(nro_cliente="115997", detalle=detalle, monto=monto, **overrides)
         return liquidar_solicitud(solicitud), fake
 
     def test_deuda_igual_paga(self, monkeypatch):
@@ -658,7 +663,8 @@ class TestVerificacionDeuda:
     def test_comprobante_ya_no_pendiente_no_crea_transaccion(self, monkeypatch):
         """Caso real 2026-10-06 (115997): NC de prod que no existe en el SIIC donde se paga."""
         self._con_deuda_actual(monkeypatch, [_pend(1, "10.00")])
-        s, fake = self._liquidar(monkeypatch, [_pend(1, "10.00"), _pend(20253, "-384.90", "NC. CONCILIACIÓN JULIO/2026")])
+        nc = {**_pend(20253, "384.90", "NC. CONCILIACIÓN JULIO/2026"), "debito_credito": "CREDITO", "tipo": "31"}
+        s, fake = self._liquidar(monkeypatch, [_pend(1, "10.00"), nc])
         assert s.estado == SolicitudLiquidacion.Estado.ERROR
         assert s.error.startswith(facturacion_services.MENSAJE_DEUDA_CAMBIADA)
         assert "20253" in s.error and "NC. CONCILIACIÓN JULIO/2026" in s.error
@@ -688,4 +694,25 @@ class TestVerificacionDeuda:
         s, fake = self._liquidar(
             monkeypatch, [_pend(1, "10.00")], fake=_FakeConEstado(estado="PAGADA"), cobranzas_uuid="uuid-previo",
         )
+        assert s.estado == SolicitudLiquidacion.Estado.FACTURADO, s.error
+
+
+@pytest.mark.django_db
+class TestMontoContraComprobantes:
+    def test_monto_distinto_no_paga(self, monkeypatch):
+        fake = FakeCobranzasBancoClientDeTest()
+        monkeypatch.setattr(facturacion_services, "get_cobranzas_banco_client", lambda: fake)
+        s = liquidar_solicitud(_solicitud(monto=Decimal("200.00")))  # el detalle suma 150.50
+        assert s.estado == SolicitudLiquidacion.Estado.ERROR
+        assert "no coincide" in s.error and "150.50" in s.error
+        assert fake.llamadas_crear_transaccion == 0
+
+    def test_la_nota_de_credito_resta(self, monkeypatch):
+        fake = FakeCobranzasBancoClientDeTest()
+        monkeypatch.setattr(facturacion_services, "get_cobranzas_banco_client", lambda: fake)
+        detalle = [
+            {"importe": "100.00", "debito_credito": "DEBITO", "nro_cliente": "123"},
+            {"importe": "30.00", "debito_credito": "CREDITO", "nro_cliente": "123"},
+        ]
+        s = liquidar_solicitud(_solicitud(monto=Decimal("70.00"), detalle=detalle))
         assert s.estado == SolicitudLiquidacion.Estado.FACTURADO, s.error

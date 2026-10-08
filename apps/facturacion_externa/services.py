@@ -101,6 +101,11 @@ def liquidar_solicitud(solicitud: SolicitudLiquidacion) -> SolicitudLiquidacion:
     cliente = get_cobranzas_banco_client()
 
     try:
+        motivo_monto = _motivo_monto_distinto(solicitud)
+        if motivo_monto:
+            _marcar_error(solicitud, motivo_monto)
+            return solicitud
+
         if _hay_que_verificar_deuda(cliente, solicitud):
             motivo = _motivo_deuda_cambiada(solicitud)
             if motivo:
@@ -197,6 +202,25 @@ def _clave_comprobante(item: dict) -> tuple:
         return "".join(c for c in valor if c.isdigit()) if campo == "fecha" else valor
 
     return tuple(normalizar(campo) for campo in _CAMPOS_CLAVE_COMPROBANTE)
+
+
+def _motivo_monto_distinto(solicitud: SolicitudLiquidacion) -> str | None:
+    """El monto cobrado (va al documento del pago en el SIIC) tiene que ser la suma de los
+    comprobantes que se pagan, con las notas de crédito restando (el signo lo da
+    `debito_credito`, mismo criterio que la deuda). Si no, el SIIC registraría un cobro por
+    un monto y comprobantes por otro. Verificado contra las 32 solicitudes reales al
+    2026-10-08: todas coinciden."""
+    suma = Decimal("0")
+    for item in solicitud.detalle or []:
+        magnitud = abs(Decimal(str(item.get("importe") or 0)))
+        suma += -magnitud if str(item.get("debito_credito", "")).upper() == "CREDITO" else magnitud
+    suma = suma.quantize(Decimal("0.01"))
+    if suma != solicitud.monto:
+        return (
+            f"El monto cobrado (Bs. {solicitud.monto}) no coincide con la suma de los comprobantes "
+            f"(Bs. {suma}); no se pagó nada. Revisar el recibo en cessa-laravel."
+        )
+    return None
 
 
 def _hay_que_verificar_deuda(cliente, solicitud: SolicitudLiquidacion) -> bool:
