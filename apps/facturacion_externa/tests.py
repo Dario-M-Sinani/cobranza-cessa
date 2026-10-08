@@ -520,6 +520,65 @@ class TestConsultaClienteExterna:
         assert self._cliente().get(self.URL).status_code == 400
 
 
+class TestEndpointsFacturasCliente:
+    """"Tus últimas facturas" de cessa-laravel, del mismo SIIC que la deuda."""
+
+    @pytest.fixture(autouse=True)
+    def _api_key(self, settings):
+        settings.API_KEY_CESSA_LARAVEL = "la-key-correcta"
+
+    def _cliente(self, key="la-key-correcta"):
+        cliente = APIClient()
+        if key:
+            cliente.credentials(HTTP_X_API_KEY=key)
+        return cliente
+
+    def test_pagos_sin_api_key_403(self):
+        assert self._cliente(key=None).get("/api/externo/consulta/clientes/179185/pagos/").status_code == 403
+
+    def test_pagos_reenvia_el_body_y_acota_el_limit(self, monkeypatch):
+        recibidos = {}
+
+        def fake(nro, limit):
+            recibidos.update(nro=nro, limit=limit)
+            return 200, {"items": [{"detalle": "Fact Energia OCTUBRE/2023"}]}
+
+        monkeypatch.setattr("apps.facturacion_externa.views.pagos_cliente_siic", fake)
+        r = self._cliente().get("/api/externo/consulta/clientes/179185/pagos/", {"limit": "999"})
+        assert r.status_code == 200
+        assert r.json()["items"][0]["detalle"] == "Fact Energia OCTUBRE/2023"
+        assert recibidos == {"nro": 179185, "limit": 50}
+
+    def test_pagos_siic_caido_503(self, monkeypatch):
+        from services.deuda_client import DeudaClientError
+
+        def falla(nro, limit):
+            raise DeudaClientError("timeout")
+
+        monkeypatch.setattr("apps.facturacion_externa.views.pagos_cliente_siic", falla)
+        assert self._cliente().get("/api/externo/consulta/clientes/179185/pagos/").status_code == 503
+
+    def test_pagos_nro_no_numerico_404(self):
+        assert self._cliente().get("/api/externo/consulta/clientes/abc/pagos/").status_code == 404
+
+    def test_pdf_devuelve_el_pdf(self, monkeypatch):
+        monkeypatch.setattr("apps.facturacion_externa.views.comprobante_pdf_siic", lambda item: b"%PDF-1.4 x")
+        r = self._cliente().post("/api/externo/consulta/comprobantes/pdf/", {"item": {"comprobante": "1"}}, format="json")
+        assert r.status_code == 200
+        assert r["Content-Type"] == "application/pdf"
+        assert r.content.startswith(b"%PDF")
+
+    def test_pdf_sin_item_400_y_no_generado_404(self, monkeypatch):
+        assert self._cliente().post("/api/externo/consulta/comprobantes/pdf/", {}, format="json").status_code == 400
+        monkeypatch.setattr("apps.facturacion_externa.views.comprobante_pdf_siic", lambda item: None)
+        r = self._cliente().post("/api/externo/consulta/comprobantes/pdf/", {"item": {"x": 1}}, format="json")
+        assert r.status_code == 404
+
+    def test_pdf_sin_api_key_403(self):
+        r = self._cliente(key=None).post("/api/externo/consulta/comprobantes/pdf/", {"item": {"x": 1}}, format="json")
+        assert r.status_code == 403
+
+
 @pytest.mark.django_db
 class TestVerLiquidaciones:
     def test_filtra_por_cliente_y_muestra_error_y_detalle(self):

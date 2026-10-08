@@ -4,7 +4,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from services.cobranzas_banco_client import CobranzasBancoError, get_cobranzas_banco_client
-from services.deuda_client import DeudaClientError, consultar_cliente_via_cobranzas
+from services.deuda_client import (
+    DeudaClientError,
+    comprobante_pdf_siic,
+    consultar_cliente_via_cobranzas,
+    pagos_cliente_siic,
+)
 
 from .models import SolicitudLiquidacion
 from .permissions import TieneApiKeyServicioExterno
@@ -140,3 +145,43 @@ class ConsultaClienteExternaView(APIView):
         except DeudaClientError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         return Response(body, status=codigo)
+
+
+class PagosClienteExternaView(APIView):
+    """Últimos comprobantes pagados de un cliente (por cualquier canal) para "Tus últimas
+    facturas" de cessa-laravel, leídos del mismo SIIC que la deuda (SIIC_DEUDA_BASE_URL). Mismo
+    contrato que `/v1/clientes/{c}/pagos` del SIIC. cessa-laravel ya verificó la cuenta antes."""
+
+    authentication_classes = []
+    permission_classes = [TieneApiKeyServicioExterno]
+
+    def get(self, request, nro_cliente):
+        try:
+            limit = max(1, min(int(request.query_params.get("limit", 12)), 50))
+        except ValueError:
+            limit = 12
+        try:
+            codigo, body = pagos_cliente_siic(nro_cliente, limit)
+        except DeudaClientError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response(body, status=codigo)
+
+
+class ComprobantePdfExternaView(APIView):
+    """PDF de UN comprobante (`POST /v1/comprobantes` formato pdf) del mismo SIIC que la deuda.
+    Solo se acepta `{"item": {...}}` con la clave del comprobante; el formato lo fija el gateway."""
+
+    authentication_classes = []
+    permission_classes = [TieneApiKeyServicioExterno]
+
+    def post(self, request):
+        item = request.data.get("item") if isinstance(request.data, dict) else None
+        if not isinstance(item, dict) or not item:
+            return Response({"error": "Falta item (clave del comprobante)."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            pdf = comprobante_pdf_siic(item)
+        except DeudaClientError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        if pdf is None:
+            return Response({"error": "El SIIC no generó el PDF de ese comprobante."}, status=status.HTTP_404_NOT_FOUND)
+        return HttpResponse(pdf, content_type="application/pdf")

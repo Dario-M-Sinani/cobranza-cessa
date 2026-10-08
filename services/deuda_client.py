@@ -211,6 +211,46 @@ def consultar_cliente_via_cobranzas(params: dict) -> tuple[int, dict]:
     return response.status_code, body
 
 
+def pagos_cliente_siic(nro_cliente, limit: int) -> tuple[int, dict]:
+    """`GET /v1/clientes/{c}/pagos` del SIIC al que apunta la consulta de deuda del gateway
+    (SIIC_DEUDA_BASE_URL: hoy la API nueva de test). Así "Tus últimas facturas" de cessa-laravel
+    sale del mismo SIIC donde se consulta y se paga. Devuelve `(status, body)` tal cual."""
+    try:
+        response = requests.get(
+            f"{settings.SIIC_DEUDA_BASE_URL}/v1/clientes/{nro_cliente}/pagos",
+            params={"limit": limit},
+            headers={"Authorization": settings.SIIC_DEUDA_TOKEN, "Accept": "application/json"},
+            timeout=30,
+        )
+        body = response.json()
+    except requests.RequestException as exc:
+        raise DeudaClientError(f"pagos {nro_cliente}: {exc}") from exc
+    except ValueError as exc:
+        raise DeudaClientError(f"pagos {nro_cliente}: respuesta no es JSON válido") from exc
+    if response.status_code in (401, 403) or response.status_code >= 500 or not isinstance(body, dict):
+        raise DeudaClientError(f"pagos {nro_cliente}: HTTP {response.status_code}")
+    return response.status_code, body
+
+
+def comprobante_pdf_siic(item: dict) -> bytes | None:
+    """PDF de un comprobante (`POST /v1/comprobantes`, formato pdf) del mismo SIIC. None si el
+    SIIC no lo generó (comprobante inexistente o de un tipo que no imprime)."""
+    try:
+        response = requests.post(
+            f"{settings.SIIC_DEUDA_BASE_URL}/v1/comprobantes",
+            json={"formato": "pdf", "items": [item]},
+            headers={"Authorization": settings.SIIC_DEUDA_TOKEN, "Accept": "application/pdf"},
+            timeout=60,
+        )
+    except requests.RequestException as exc:
+        raise DeudaClientError(f"comprobante: {exc}") from exc
+    if response.ok and response.content.startswith(b"%PDF"):
+        return response.content
+    if response.status_code >= 500:
+        raise DeudaClientError(f"comprobante: HTTP {response.status_code}")
+    return None
+
+
 def _resultado_desde_respuesta(codigo_externo: str, status_code: int, body: dict) -> ResultadoConsultaDeuda:
     """Interpreta la respuesta de `/v1/consulta/cliente` del SIIC (directa o a
     través de api-cobranzas, que la reenvía igual)."""
