@@ -8,6 +8,7 @@ PENDIENTE en silencio."""
 from __future__ import annotations
 
 import hashlib
+from decimal import Decimal
 
 from django.conf import settings
 from django.utils import timezone
@@ -20,7 +21,18 @@ from services.cobranzas_banco_client import (
     get_cobranzas_banco_client,
 )
 
+from services.deuda_client import DeudaClientError, consultar_cliente_via_cobranzas
+
 from .models import SolicitudLiquidacion
+
+# Prefijo del error cuando la deuda cambió entre que cessa-laravel generó el QR y el pago
+# (ver _motivo_deuda_cambiada). cessa-laravel puede reconocerlo para pedir regenerar el QR.
+MENSAJE_DEUDA_CAMBIADA = "La deuda cambió desde que se generó el QR"
+
+# Lo que identifica un comprobante en el SIIC (mismos campos con los que lo busca al pagar).
+_CAMPOS_CLAVE_COMPROBANTE = (
+    "codigo_sucursal", "nro_comprobante", "nro_suministro", "fecha", "tipo", "letra_comprobante", "nro_autorizacion",
+)
 
 # Texto exacto que devuelve api-cobranzas-bancos cuando /pagar-otro-documento se reintenta sobre
 # una transacción que ya se pagó con éxito en un intento anterior (ver hallazgo de sesión
@@ -89,6 +101,12 @@ def liquidar_solicitud(solicitud: SolicitudLiquidacion) -> SolicitudLiquidacion:
     cliente = get_cobranzas_banco_client()
 
     try:
+        if _hay_que_verificar_deuda(cliente, solicitud):
+            motivo = _motivo_deuda_cambiada(solicitud)
+            if motivo:
+                _marcar_error(solicitud, motivo)
+                return solicitud
+
         cliente.asegurar_caja_abierta()
 
         uuid = solicitud.cobranzas_uuid or cliente.crear_transaccion()
@@ -171,6 +189,70 @@ def liquidar_solicitud(solicitud: SolicitudLiquidacion) -> SolicitudLiquidacion:
         _marcar_error(solicitud, f"Error inesperado: {exc}")
 
     return solicitud
+
+
+def _clave_comprobante(item: dict) -> tuple:
+    def normalizar(campo):
+        valor = str(item.get(campo) or "").strip()
+        return "".join(c for c in valor if c.isdigit()) if campo == "fecha" else valor
+
+    return tuple(normalizar(campo) for campo in _CAMPOS_CLAVE_COMPROBANTE)
+
+
+def _hay_que_verificar_deuda(cliente, solicitud: SolicitudLiquidacion) -> bool:
+    """Siempre en el primer intento. En un reintento con transacción ya PAGADA no: los
+    comprobantes figuran pagados justamente por esta liquidación (falló después, al traer el
+    comprobante) y verificarlos la bloquearía."""
+    if not solicitud.cobranzas_uuid:
+        return True
+    try:
+        return cliente.obtener_estado_transaccion(solicitud.cobranzas_uuid) != "PAGADA"
+    except CobranzasBancoError:
+        return True
+
+
+def _motivo_deuda_cambiada(solicitud: SolicitudLiquidacion) -> str | None:
+    """Vuelve a consultar la deuda (como banco, en el mismo SIIC donde se va a pagar) y
+    compara con los comprobantes que manda cessa-laravel. Devuelve el motivo si cambió, o
+    None si sigue igual o no se pudo consultar (en ese caso decide el SIIC al pagar).
+
+    El SIIC paga un comprobante solo si sigue pendiente y es el más antiguo (vencimiento,
+    tipo), y la consulta ya los trae en ese orden: lo que se paga tiene que ser exactamente
+    los N primeros pendientes. Si no, el pago fallaría igual, pero dejando una transacción
+    FALLIDA en api-cobranzas y un mensaje del SIIC difícil de interpretar."""
+    try:
+        status, body = consultar_cliente_via_cobranzas({"nro_cliente": solicitud.nro_cliente, "ver_deuda": "si"})
+    except DeudaClientError:
+        return None
+    if status == 404 or body.get("error") or not body.get("nro_cliente"):
+        return f"{MENSAJE_DEUDA_CAMBIADA}: el cliente {solicitud.nro_cliente} no figura en el SIIC."
+
+    pendientes = body.get("deuda") or []
+    por_clave = {_clave_comprobante(item): item for item in pendientes}
+    enviados = list(solicitud.detalle or [])
+
+    ya_no_pendientes = [d for d in enviados if _clave_comprobante(d) not in por_clave]
+    if ya_no_pendientes:
+        lista = ", ".join(f"N° {d.get('nro_comprobante')} ({d.get('detalle', '').strip()})" for d in ya_no_pendientes)
+        return f"{MENSAJE_DEUDA_CAMBIADA}: ya no están pendientes {lista} (pagados por otro medio o anulados)."
+
+    importes_distintos = [
+        d for d in enviados
+        if abs(Decimal(str(d.get("importe") or 0))) != abs(Decimal(str(por_clave[_clave_comprobante(d)].get("importe") or 0)))
+    ]
+    if importes_distintos:
+        lista = ", ".join(f"N° {d.get('nro_comprobante')}" for d in importes_distintos)
+        return f"{MENSAJE_DEUDA_CAMBIADA}: cambió el importe de {lista}."
+
+    mas_antiguos = {_clave_comprobante(p) for p in pendientes[: len(enviados)]}
+    if mas_antiguos != {_clave_comprobante(d) for d in enviados}:
+        faltan = [p for p in pendientes[: len(enviados)] if _clave_comprobante(p) not in {_clave_comprobante(d) for d in enviados}]
+        lista = ", ".join(f"N° {p.get('nro_comprobante')} ({str(p.get('detalle', '')).strip()})" for p in faltan)
+        return (
+            f"{MENSAJE_DEUDA_CAMBIADA}: hay comprobantes más antiguos pendientes que no están en el pago "
+            f"({lista}); el SIIC exige pagar del más antiguo al más nuevo."
+        )
+    return None
 
 
 def _marcar_error(solicitud: SolicitudLiquidacion, motivo: str) -> None:

@@ -604,3 +604,88 @@ class TestVerLiquidaciones:
         salida = StringIO()
         call_command("ver_liquidaciones", "--cliente", "1", stdout=salida)
         assert "Sin liquidaciones" in salida.getvalue()
+
+
+@pytest.fixture(autouse=True)
+def _sin_verificacion_de_deuda_por_defecto(monkeypatch, request):
+    """Los tests de liquidación no pegan a la red: la re-consulta de la deuda falla como si no
+    hubiera red, y en ese caso liquidar_solicitud() sigue (decide el SIIC al pagar). Los tests
+    de TestVerificacionDeuda la reemplazan."""
+    from services.deuda_client import DeudaClientError
+
+    def sin_red(params):
+        raise DeudaClientError("sin red en tests")
+
+    monkeypatch.setattr(facturacion_services, "consultar_cliente_via_cobranzas", sin_red)
+
+
+def _pend(nro, importe, detalle="Fact", fecha="20260211"):
+    return {
+        "codigo_sucursal": "1", "nro_comprobante": str(nro), "nro_suministro": "1", "fecha": fecha, "tipo": "3",
+        "letra_comprobante": "            ", "nro_autorizacion": "3", "nro_cliente": "115997",
+        "importe": importe, "detalle": detalle, "debito_credito": "DEBITO",
+    }
+
+
+class _FakeConEstado(FakeCobranzasBancoClientDeTest):
+    def __init__(self, estado="", **kw):
+        super().__init__(**kw)
+        self.estado = estado
+
+    def obtener_estado_transaccion(self, uuid):
+        return self.estado
+
+
+@pytest.mark.django_db
+class TestVerificacionDeuda:
+    def _con_deuda_actual(self, monkeypatch, pendientes, status=200):
+        body = {"nro_cliente": "115997", "deuda": pendientes} if status == 200 else {"error": "No existe", "code": 404}
+        monkeypatch.setattr(facturacion_services, "consultar_cliente_via_cobranzas", lambda params: (status, body))
+
+    def _liquidar(self, monkeypatch, detalle, fake=None, **overrides):
+        fake = fake or FakeCobranzasBancoClientDeTest()
+        monkeypatch.setattr(facturacion_services, "get_cobranzas_banco_client", lambda: fake)
+        solicitud = _solicitud(nro_cliente="115997", detalle=detalle, **overrides)
+        return liquidar_solicitud(solicitud), fake
+
+    def test_deuda_igual_paga(self, monkeypatch):
+        self._con_deuda_actual(monkeypatch, [_pend(1, "10.00"), _pend(2, "20.00")])
+        # Con letra sin espacios y fecha con guiones: se normalizan.
+        s, fake = self._liquidar(monkeypatch, [{**_pend(1, "10.00"), "letra_comprobante": "", "fecha": "2026-02-11"}])
+        assert s.estado == SolicitudLiquidacion.Estado.FACTURADO, s.error
+        assert fake.llamadas_pagar == 1
+
+    def test_comprobante_ya_no_pendiente_no_crea_transaccion(self, monkeypatch):
+        """Caso real 2026-10-06 (115997): NC de prod que no existe en el SIIC donde se paga."""
+        self._con_deuda_actual(monkeypatch, [_pend(1, "10.00")])
+        s, fake = self._liquidar(monkeypatch, [_pend(1, "10.00"), _pend(20253, "-384.90", "NC. CONCILIACIÓN JULIO/2026")])
+        assert s.estado == SolicitudLiquidacion.Estado.ERROR
+        assert s.error.startswith(facturacion_services.MENSAJE_DEUDA_CAMBIADA)
+        assert "20253" in s.error and "NC. CONCILIACIÓN JULIO/2026" in s.error
+        assert fake.llamadas_crear_transaccion == 0 and fake.llamadas_pagar == 0
+
+    def test_importe_distinto(self, monkeypatch):
+        self._con_deuda_actual(monkeypatch, [_pend(1, "12.00")])
+        s, fake = self._liquidar(monkeypatch, [_pend(1, "10.00")])
+        assert s.estado == SolicitudLiquidacion.Estado.ERROR and "cambió el importe" in s.error
+        assert fake.llamadas_pagar == 0
+
+    def test_hay_uno_mas_antiguo_que_no_se_paga(self, monkeypatch):
+        self._con_deuda_actual(monkeypatch, [_pend(0, "5.00", "Fact NUEVA"), _pend(1, "10.00")])
+        s, fake = self._liquidar(monkeypatch, [_pend(1, "10.00")])
+        assert s.estado == SolicitudLiquidacion.Estado.ERROR and "más antiguos" in s.error and "N° 0" in s.error
+        assert fake.llamadas_pagar == 0
+
+    def test_cliente_inexistente(self, monkeypatch):
+        self._con_deuda_actual(monkeypatch, [], status=404)
+        s, _ = self._liquidar(monkeypatch, [_pend(1, "10.00")])
+        assert s.estado == SolicitudLiquidacion.Estado.ERROR and "no figura" in s.error
+
+    def test_reintento_con_transaccion_ya_pagada_no_verifica(self, monkeypatch):
+        """Pagó en un intento anterior y falló al traer el comprobante: la deuda ya no figura
+        pendiente justamente por este pago; no hay que bloquearlo."""
+        self._con_deuda_actual(monkeypatch, [])  # ya no hay nada pendiente
+        s, fake = self._liquidar(
+            monkeypatch, [_pend(1, "10.00")], fake=_FakeConEstado(estado="PAGADA"), cobranzas_uuid="uuid-previo",
+        )
+        assert s.estado == SolicitudLiquidacion.Estado.FACTURADO, s.error
