@@ -716,3 +716,46 @@ class TestMontoContraComprobantes:
         ]
         s = liquidar_solicitud(_solicitud(monto=Decimal("70.00"), detalle=detalle))
         assert s.estado == SolicitudLiquidacion.Estado.FACTURADO, s.error
+
+
+@pytest.mark.django_db
+class TestVerificarProduccion:
+    def _correr(self, settings, entorno, base_url="https://api-cobranzas-test.bo-com-assec.net", usuario="CABISAQR"):
+        from io import StringIO
+        from unittest.mock import patch
+
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+
+        settings.COBRANZAS_BANCO_BASE_URL = base_url
+        settings.COBRANZAS_BANCO_USERNAME = usuario
+        settings.SIIC_DEUDA_BASE_URL = "http://127.0.0.1:6012"
+        settings.API_KEY_CESSA_LARAVEL = "x" * 40
+        settings.COBRANZAS_BANCO_DOCUMENTO_BANCO_IDS = {"sip_bisa": "4", "bnb": "5"}
+        salida = StringIO()
+        with patch(
+            "apps.facturacion_externa.management.commands.verificar_produccion.get_cobranzas_banco_client",
+            side_effect=CobranzasBancoError("sin red en tests"),
+        ), patch(
+            "apps.facturacion_externa.management.commands.verificar_produccion.requests.get",
+            side_effect=__import__("requests").ConnectionError("sin red"),
+        ):
+            try:
+                call_command("verificar_produccion", "--entorno", entorno, stdout=salida)
+                fallo = False
+            except CommandError:
+                fallo = True
+        return salida.getvalue(), fallo
+
+    def test_en_prod_marca_lo_de_test_como_error(self, settings):
+        texto, fallo = self._correr(settings, "prod")
+        assert fallo
+        assert "[ERROR] COBRANZAS_BANCO_BASE_URL apunta a test" in texto
+        assert "[ERROR] COBRANZAS_BANCO_USERNAME=CABISAQR" in texto
+        assert "[ERROR] SIIC_DEUDA_BASE_URL apunta al SIIC de test" in texto
+
+    def test_en_test_lo_de_test_esta_bien(self, settings):
+        texto, _ = self._correr(settings, "test")
+        assert "[OK   ] COBRANZAS_BANCO_BASE_URL=https://api-cobranzas-test.bo-com-assec.net (test)" in texto
+        # Sin red, el login falla igual (y eso sí es error en cualquier entorno).
+        assert "[ERROR] Login en api-cobranzas-bancos falló" in texto

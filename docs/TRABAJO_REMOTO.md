@@ -85,6 +85,7 @@ Al 2026-10-07: 185 tests verdes.
 dj ver_liquidaciones                                  # las 5 más nuevas
 dj ver_liquidaciones --cliente 115997 --detalle --remoto
 dj verificar_cobranzas_banco                          # credenciales, caja del día y catálogos (solo lectura)
+dj verificar_produccion --entorno test --cliente 179185   # chequeo completo; sin --entorno = exige prod (ver PASE_A_PRODUCCION.md)
 journalctl -u cobranza-cessa-gunicorn -n 50 --no-pager
 sudo grep externo /var/log/nginx/access.log | tail    # POST de cessa-laravel (User-Agent GuzzleHttp)
 ```
