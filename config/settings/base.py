@@ -235,3 +235,8 @@ CELERY_BEAT_SCHEDULE["resumen-diario-pagos-web-con-error"] = {
     "task": "apps.facturacion_externa.tasks.resumen_diario_errores",
     "schedule": crontab(hour=8, minute=0),
 }
+
+CELERY_BEAT_SCHEDULE["conciliacion-diaria-pagos"] = {
+    "task": "apps.facturacion_externa.tasks.conciliacion_diaria",
+    "schedule": crontab(hour=7, minute=30),
+}

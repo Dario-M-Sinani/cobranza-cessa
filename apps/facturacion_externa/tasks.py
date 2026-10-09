@@ -17,3 +17,18 @@ def resumen_diario_errores():
         return 0
     resumen = resumen_de_errores()
     return notificar(*resumen) if resumen else 0
+
+
+@shared_task
+def conciliacion_diaria():
+    """Programada a las 07:30: concilia el día anterior y avisa solo si hay diferencias."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from .conciliacion import conciliar
+
+    reporte = conciliar(timezone.localdate() - timedelta(days=1))
+    if reporte.diferencias and hay_canal_configurado():
+        notificar(f"Conciliación de pagos: {len(reporte.diferencias)} diferencias", reporte.texto())
+    return len(reporte.diferencias)

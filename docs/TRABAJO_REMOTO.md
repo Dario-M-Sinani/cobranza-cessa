@@ -168,6 +168,7 @@ Con `ALERTAS_TELEGRAM_BOT_TOKEN` + `ALERTAS_TELEGRAM_CHAT_IDS` (y/o `ALERTAS_EMA
 - caja fuera de horario o cerrada: sin aviso (se resuelve sola);
 - una vez por pago (`alertado_en`); si después se factura, aviso de "resuelto";
 - resumen diario a las 08:00 (celery beat) si hay pagos web con error.
+- **conciliación diaria 07:30**: lo PAGADO en la .102 con el usuario de banco contra los pagos web y los cobros del panel del día anterior; avisa solo si hay diferencias. A mano: `dj conciliar_pagos [--desde AAAA-MM-DD --hasta AAAA-MM-DD] [--alertar]`.
 Sin canal configurado no se envía nada. Probar el canal: `dj shell -c "from services.alertas import notificar; print(notificar('Prueba', 'Alerta de prueba'))"`.
 
 ## 11. Pendientes
