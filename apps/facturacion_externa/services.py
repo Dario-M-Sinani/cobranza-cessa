@@ -8,6 +8,7 @@ PENDIENTE en silencio."""
 from __future__ import annotations
 
 import hashlib
+import logging
 from decimal import Decimal
 
 from django.conf import settings
@@ -24,6 +25,8 @@ from services.cobranzas_banco_client import (
 from services.deuda_client import DeudaClientError, consultar_cliente_via_cobranzas
 
 from .models import SolicitudLiquidacion
+
+logger = logging.getLogger(__name__)
 
 # Prefijo del error cuando la deuda cambió entre que cessa-laravel generó el QR y el pago
 # (ver _motivo_deuda_cambiada). cessa-laravel puede reconocerlo para pedir regenerar el QR.
@@ -86,6 +89,19 @@ def banco_id_para(solicitud: SolicitudLiquidacion) -> str:
 
 
 def liquidar_solicitud(solicitud: SolicitudLiquidacion) -> SolicitudLiquidacion:
+    """Liquida y, al terminar, decide si hay que avisar al equipo (alertas.py: pago sin
+    factura, o resuelto después de un aviso). La alerta nunca afecta el resultado del pago."""
+    solicitud = _liquidar(solicitud)
+    try:
+        from .alertas import evaluar
+
+        evaluar(solicitud)
+    except Exception:  # noqa: BLE001
+        logger.exception("No se pudo evaluar la alerta de la liquidación %s", solicitud.pk)
+    return solicitud
+
+
+def _liquidar(solicitud: SolicitudLiquidacion) -> SolicitudLiquidacion:
     if solicitud.estado == SolicitudLiquidacion.Estado.FACTURADO:
         return solicitud  # ya liquidada -- idempotente, no se vuelve a pagar.
 

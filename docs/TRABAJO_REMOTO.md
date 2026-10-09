@@ -160,7 +160,17 @@ sudo git -C /opt/cobranza-cessa-frontend -c safe.directory=/opt/cobranza-cessa-f
 ```
 nginx sirve `dist/` directo: no hace falta reiniciar nada.
 
-## 10. Pendientes
+## 10. Alertas de pagos web sin factura
+
+Con `ALERTAS_TELEGRAM_BOT_TOKEN` + `ALERTAS_TELEGRAM_CHAT_IDS` (y/o `ALERTAS_EMAIL_DESTINOS`) en el `.env`:
+- rechazo definitivo (deuda cambió, monto distinto, deuda no existe, ya pagado por otro medio): aviso inmediato;
+- otro error: aviso al llegar a `ALERTAS_INTENTOS_MINIMOS` (3) intentos;
+- caja fuera de horario o cerrada: sin aviso (se resuelve sola);
+- una vez por pago (`alertado_en`); si después se factura, aviso de "resuelto";
+- resumen diario a las 08:00 (celery beat) si hay pagos web con error.
+Sin canal configurado no se envía nada. Probar el canal: `dj shell -c "from services.alertas import notificar; print(notificar('Prueba', 'Alerta de prueba'))"`.
+
+## 11. Pendientes
 
 - **Producción:** gateway de prod (.102 prod + SIIC prod + credenciales propias), alta de CESSA Web
   como banco, horario y cierre de caja, deuda que cambia entre QR y pago, anulaciones, alertas.

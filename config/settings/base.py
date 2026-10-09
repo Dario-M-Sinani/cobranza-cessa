@@ -2,6 +2,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import environ
+from celery.schedules import crontab
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -219,3 +220,18 @@ LOGGING = {
     },
 }
 CAJA_HORARIO_FIN = env.int("CAJA_HORARIO_FIN", default=18)
+
+# Alertas al equipo cuando un pago web queda sin factura (apps/facturacion_externa/alertas.py,
+# services/alertas.py). Todo opcional: sin canal configurado no se envía nada.
+ALERTAS_TELEGRAM_BOT_TOKEN = env("ALERTAS_TELEGRAM_BOT_TOKEN", default="")
+ALERTAS_TELEGRAM_CHAT_IDS = env.list("ALERTAS_TELEGRAM_CHAT_IDS", default=[])
+ALERTAS_EMAIL_DESTINOS = env.list("ALERTAS_EMAIL_DESTINOS", default=[])
+# Errores que no son definitivos ni de caja: se avisa recién a partir de este intento fallido.
+ALERTAS_INTENTOS_MINIMOS = env.int("ALERTAS_INTENTOS_MINIMOS", default=3)
+# Para el enlace "Ver: .../pagos-web" de las alertas (ej. https://10.1.1.88).
+PANEL_URL = env("PANEL_URL", default="")
+
+CELERY_BEAT_SCHEDULE["resumen-diario-pagos-web-con-error"] = {
+    "task": "apps.facturacion_externa.tasks.resumen_diario_errores",
+    "schedule": crontab(hour=8, minute=0),
+}

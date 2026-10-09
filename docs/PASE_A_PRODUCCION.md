@@ -75,6 +75,9 @@ sudo systemctl daemon-reload && sudo systemctl enable --now cobranza-cessa-prod-
 | `DEUDA_CLIENT_CLASS` | `SiicDeudaClient` | igual (solo lo usa el panel de cajeras) |
 | `MC4_*` | SIP de test | solo si el panel de cajeras va a prod (§6) |
 | `SECURE_SSL_REDIRECT` / `*_COOKIE_SECURE` | `False` | `False` (TLS lo termina nginx/Cloudflare) |
+| `ALERTAS_TELEGRAM_BOT_TOKEN` / `ALERTAS_TELEGRAM_CHAT_IDS` | (sin configurar) | bot y chats del equipo que reciben los avisos de pagos sin factura |
+| `ALERTAS_EMAIL_DESTINOS` | (sin configurar) | correos que reciben los avisos (requiere `EMAIL_HOST` etc.) |
+| `PANEL_URL` | (sin configurar) | URL del panel para el enlace de las alertas |
 
 Los ids de banco y ente los muestra `manage.py verificar_produccion` (§5) leyendo el catálogo.
 

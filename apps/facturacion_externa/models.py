@@ -51,6 +51,8 @@ class SolicitudLiquidacion(models.Model):
 
     recibido_en = models.DateTimeField(auto_now_add=True)
     procesado_en = models.DateTimeField(null=True, blank=True)
+    # Cuándo se avisó al equipo que este pago quedó sin factura (ver alertas.py); una sola vez.
+    alertado_en = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-recibido_en"]
