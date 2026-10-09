@@ -161,6 +161,10 @@ COBRANZAS_BANCO_CLIENT_SECRET = env("COBRANZAS_BANCO_CLIENT_SECRET", default="")
 COBRANZAS_BANCO_USERNAME = env("COBRANZAS_BANCO_USERNAME", default="")
 COBRANZAS_BANCO_PASSWORD = env("COBRANZAS_BANCO_PASSWORD", default="")
 COBRANZAS_BANCO_AGENCIA_SIGLA = env("COBRANZAS_BANCO_AGENCIA_SIGLA", default="")
+# TLS hacia api-cobranzas-bancos: "true" (por defecto) o la ruta a un .pem con el certificado de
+# la .102 (su IP directa, ej. https://10.1.1.102:6002, no tiene un certificado verificable por la
+# cadena pública). Nunca "false" en producción.
+COBRANZAS_BANCO_VERIFY = env("COBRANZAS_BANCO_VERIFY", default="true")
 # Catálogos GET /v1/entes y GET /v1/bancos de api-cobranzas-bancos -- los IDs
 # que corresponden a "pago por QR/transferencia electrónica" y al banco
 # destino real (hoy Banco BISA). Hay que consultarlos una vez que haya red

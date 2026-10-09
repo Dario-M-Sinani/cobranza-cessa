@@ -17,7 +17,7 @@ gateway PROD (.88, instancia aparte)  ── deuda/pago como banco ──►  ap
 
 | Quién | Qué | Para qué variable |
 |---|---|---|
-| Administrador SIIC / .102 | Cuál es la api-cobranzas de **producción** real (en la .102 hay `prod-1` :6001, `prod-2` :6002, `prod` :443) y a qué SIIC prod apunta | `COBRANZAS_BANCO_BASE_URL` |
+| Administrador SIIC / .102 | Confirmar que la api-cobranzas de producción es `.102:6002` (§2: es la que responde como prod) y activar su vhost en el proxy (opción A), o aceptar la opción B | `COBRANZAS_BANCO_BASE_URL` |
 | Administrador SIIC / .102 | Alta de **CESSA Web como banco**: usuario cajero (rol CAJA), caja, agencia, cliente OAuth | `COBRANZAS_BANCO_CLIENT_ID/_SECRET/_USERNAME/_PASSWORD`, `_AGENCIA_SIGLA` |
 | Administrador SIIC | Horario de la caja web (hoy 07:50–18:50: lo pagado de noche se factura al otro día) y quién la cierra cada día | — |
 | Contabilidad | Confirmar el **ente** del documento (en test, `ENTE_ID=3` = "DEPOSITO") | `COBRANZAS_BANCO_DOCUMENTO_ENTE_ID` |
@@ -38,21 +38,39 @@ código, con su base, su Redis, su puerto y su dominio: así se prueba en test s
 | Redis (Celery) | `redis://localhost:6379/0` | `redis://localhost:6379/1` (**distinto**: si no, se mezclan las tareas) |
 | Dominio | `test01.cessa.com.bo` | el que asigne la red (ej. `pagos.cessa.com.bo`) |
 
-Pasos (como `soporte`, con sudo):
+Preparar (o actualizar) la instancia, **sin encenderla**:
 ```bash
-sudo -u cobranza git clone https://github.com/Dario-M-Sinani/cobranza-cessa.git /opt/cobranza-cessa-prod
-cd /opt/cobranza-cessa-prod && sudo -u cobranza python3 -m venv .venv
-sudo -u cobranza .venv/bin/pip install -r requirements/production.txt
-sudo -u postgres createdb -O <usuario_db> cobranza_cessa_produccion
-sudo -u cobranza cp /opt/cobranza-cessa/.env .env      # y editar TODO lo de la tabla de §3
-sudo -u cobranza env DJANGO_SETTINGS_MODULE=config.settings.production .venv/bin/python manage.py migrate
-sudo -u cobranza env DJANGO_SETTINGS_MODULE=config.settings.production .venv/bin/python manage.py collectstatic --noinput
-# units: copiar deploy/*.service como cobranza-cessa-prod-*.service, cambiando
-#   /opt/cobranza-cessa -> /opt/cobranza-cessa-prod  y  --bind 127.0.0.1:8001 -> 127.0.0.1:8002
-sudo systemctl daemon-reload && sudo systemctl enable --now cobranza-cessa-prod-gunicorn cobranza-cessa-prod-celery-worker cobranza-cessa-prod-celery-beat
-# nginx: server nuevo para el dominio de prod, SOLO con `location /api/externo/` -> 127.0.0.1:8002
-#   (el panel de cajeras y /admin no se exponen en el dominio de prod)
+sudo bash /opt/cobranza-cessa/deploy/instalar_prod.sh
 ```
+Idempotente: clona/actualiza el código en `/opt/cobranza-cessa-prod`, crea el entorno y la base
+`cobranza_cessa_produccion`, genera el `.env` de prod (solo si no existe: claves nuevas, Redis `/1`,
+SIIC Nest prod, lo de api-cobranzas vacío), instala la CA de Cloudflare Origin, migra, y deja los
+servicios `cobranza-cessa-prod-*` y el sitio nginx `cobranza-cessa-prod` **creados pero apagados**.
+
+### api-cobranzas de producción: dirección y certificado (relevado 2026-10-09)
+
+| Dirección | Qué responde |
+|---|---|
+| `10.1.1.102:6002` | **producción** ("Lumen …" sin "TEST"); certificado Cloudflare Origin `*.bo-com-assec.net` (no verificable por IP) |
+| `10.1.1.102:443` | producción (idem) |
+| `10.1.1.102:6001` | nada |
+| `api-cobranzas-prod-6002.bo-com-assec.net` | **la de TEST** (su vhost en el proxy no está activo y cae al default) |
+
+Dos formas de llegar a prod con TLS verificado:
+- **A — la red activa el vhost** `api-cobranzas-prod-6002` en el proxy → `COBRANZAS_BANCO_BASE_URL=https://api-cobranzas-prod-6002.bo-com-assec.net`, `COBRANZAS_BANCO_VERIFY=true`.
+- **B — directo a la .102 (probado):** en la .88 `/etc/hosts` con `10.1.1.102 api-cobranzas-prod-6002.bo-com-assec.net`,
+  `COBRANZAS_BANCO_BASE_URL=https://api-cobranzas-prod-6002.bo-com-assec.net:6002` y
+  `COBRANZAS_BANCO_VERIFY=/etc/ssl/certs/cloudflare-origin-ca-root.pem` (lo que deja el `.env` generado).
+
+En los dos casos `verificar_produccion` lee la portada de la API y da **ERROR si responde "TEST"**.
+
+### Encender (con el `.env` completo y `verificar_produccion` en 0 errores)
+```bash
+sudo systemctl enable --now cobranza-cessa-prod-gunicorn cobranza-cessa-prod-celery-worker cobranza-cessa-prod-celery-beat
+sudo sed -i 's/DOMINIO_PROD/<dominio>/' /etc/nginx/sites-available/cobranza-cessa-prod
+sudo ln -s /etc/nginx/sites-available/cobranza-cessa-prod /etc/nginx/sites-enabled/ && sudo nginx -t && sudo systemctl reload nginx
+```
+(nginx atiende otros servicios de la .88: `nginx -t` antes de recargar; recargar no corta conexiones.)
 
 ## 3. `.env` del gateway de producción
 
@@ -63,7 +81,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now cobranza-cessa-prod-
 | `DATABASE_URL` | `.../cobranza_cessa` | `.../cobranza_cessa_produccion` |
 | `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` | `redis://localhost:6379/0` | `redis://localhost:6379/1` |
 | `API_KEY_CESSA_LARAVEL` | la de test | **nueva** (la misma va a `COBRANZAS_GATEWAY_API_KEY` de cessa-laravel prod) |
-| `COBRANZAS_BANCO_BASE_URL` | `https://api-cobranzas-test.bo-com-assec.net` | la api-cobranzas prod (§1) |
+| `COBRANZAS_BANCO_BASE_URL` / `_VERIFY` | `https://api-cobranzas-test.bo-com-assec.net` / `true` | opción A o B de §2 |
 | `COBRANZAS_BANCO_CLIENT_ID` / `_SECRET` | test | los de prod (§1) |
 | `COBRANZAS_BANCO_USERNAME` / `_PASSWORD` | `CABISAQR` (cajero BISA QR de test) | el cajero de CESSA Web (§1) |
 | `COBRANZAS_BANCO_AGENCIA_SIGLA` | `WEB` | la que den con el alta |

@@ -759,3 +759,50 @@ class TestVerificarProduccion:
         assert "[OK   ] COBRANZAS_BANCO_BASE_URL=https://api-cobranzas-test.bo-com-assec.net (test)" in texto
         # Sin red, el login falla igual (y eso sí es error en cualquier entorno).
         assert "[ERROR] Login en api-cobranzas-bancos falló" in texto
+
+
+@pytest.mark.django_db
+class TestIdentidadDeCobranzas:
+    """Un dominio de prod cuyo vhost cae al de test responde "... TEST": tiene que ser ERROR."""
+
+    def _correr(self, settings, portada, entorno="prod", verify="true"):
+        from io import StringIO
+        from unittest.mock import Mock, patch
+
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+
+        settings.COBRANZAS_BANCO_BASE_URL = "https://api-cobranzas-prod-6002.bo-com-assec.net"
+        settings.COBRANZAS_BANCO_VERIFY = verify
+        salida = StringIO()
+        respuesta = Mock(text=portada)
+        with patch(
+            "apps.facturacion_externa.management.commands.verificar_produccion.get_cobranzas_banco_client",
+            side_effect=CobranzasBancoError("sin red"),
+        ), patch(
+            "apps.facturacion_externa.management.commands.verificar_produccion.requests.get", return_value=respuesta,
+        ):
+            try:
+                call_command("verificar_produccion", "--entorno", entorno, stdout=salida)
+            except CommandError:
+                pass
+        return salida.getvalue()
+
+    def test_url_de_prod_que_responde_test_es_error(self, settings):
+        texto = self._correr(settings, "Lumen (8.3.4) (Laravel Components ^8.0) TEST")
+        assert "[ERROR] api-cobranzas responde" in texto and "ES LA DE TEST" in texto
+
+    def test_prod_de_verdad(self, settings):
+        assert "[OK   ] api-cobranzas responde: 'Lumen (8.3.4) (Laravel Components ^8.0)'" in self._correr(
+            settings, "Lumen (8.3.4) (Laravel Components ^8.0)"
+        )
+
+    def test_verify_false_en_prod_es_error(self, settings):
+        assert "[ERROR] COBRANZAS_BANCO_VERIFY=false" in self._correr(settings, "Lumen", verify="false")
+
+    def test_verificacion_tls(self, settings):
+        from services.cobranzas_banco_client import verificacion_tls
+
+        for valor, esperado in (("true", True), ("", True), ("false", False), ("/etc/ssl/cessa-102.pem", "/etc/ssl/cessa-102.pem")):
+            settings.COBRANZAS_BANCO_VERIFY = valor
+            assert verificacion_tls() == esperado

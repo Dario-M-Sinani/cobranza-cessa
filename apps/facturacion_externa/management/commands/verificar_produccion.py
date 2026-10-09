@@ -13,7 +13,7 @@ import requests
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-from services.cobranzas_banco_client import CobranzasBancoError, get_cobranzas_banco_client
+from services.cobranzas_banco_client import CobranzasBancoError, get_cobranzas_banco_client, verificacion_tls
 from services.deuda_client import DeudaClientError, consultar_cliente_via_cobranzas
 
 OK, AVISO, ERROR = "OK", "AVISO", "ERROR"
@@ -30,6 +30,7 @@ class Command(BaseCommand):
         self.prod = opciones["entorno"] == "prod"
         self.resultados = []
         self._configuracion()
+        self._identidad_cobranzas()
         self._cobranzas()
         self._siic_deuda()
         if opciones.get("cliente"):
@@ -96,6 +97,33 @@ class Command(BaseCommand):
             )
 
     # --- api-cobranzas-bancos ---------------------------------------------------------------
+
+    def _identidad_cobranzas(self):
+        """Qué instancia contesta de verdad: la de test de la .102 dice "... TEST" en su portada.
+        Un dominio de prod cuyo vhost no está activo en el proxy cae en la de test sin avisar
+        (pasaba con api-cobranzas-prod-6002.bo-com-assec.net al 2026-10-09): la URL no basta."""
+        verify = verificacion_tls()
+        if verify is False:
+            self._r(ERROR if self.prod else AVISO, "COBRANZAS_BANCO_VERIFY=false: TLS sin verificar hacia api-cobranzas")
+        elif verify is not True:
+            self._r(OK, f"COBRANZAS_BANCO_VERIFY={verify} (certificado propio de la .102)")
+        base = (settings.COBRANZAS_BANCO_BASE_URL or "").rstrip("/")
+        if not base:
+            self._r(ERROR, "COBRANZAS_BANCO_BASE_URL vacío")
+            return
+        try:
+            portada = requests.get(f"{base}/", timeout=15, verify=verify).text.strip()[:80]
+        except requests.exceptions.SSLError as exc:
+            self._r(ERROR, f"Certificado de {base} no verificable ({exc.__class__.__name__}): usar COBRANZAS_BANCO_VERIFY=<ruta .pem>")
+            return
+        except requests.RequestException as exc:
+            self._r(ERROR, f"api-cobranzas sin conexión: {exc}")
+            return
+        es_test = "TEST" in portada.upper()
+        if self.prod:
+            self._r(ERROR if es_test else OK, f"api-cobranzas responde: {portada!r}" + (" -- ES LA DE TEST" if es_test else ""))
+        else:
+            self._r(OK if es_test else AVISO, f"api-cobranzas responde: {portada!r}" + ("" if es_test else " -- ¿no es la de test?"))
 
     def _cobranzas(self):
         try:

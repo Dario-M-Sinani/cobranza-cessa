@@ -142,6 +142,16 @@ def construir_documento(
     }
 
 
+def verificacion_tls() -> bool | str:
+    """COBRANZAS_BANCO_VERIFY -> el `verify` de requests: "true"/"false" o la ruta a un .pem."""
+    valor = str(getattr(settings, "COBRANZAS_BANCO_VERIFY", "true")).strip()
+    if valor.lower() in ("", "true", "1", "si", "sí", "yes"):
+        return True
+    if valor.lower() in ("false", "0", "no"):
+        return False
+    return valor
+
+
 class LumenCobranzasBancoClient(CobranzasBancoClientInterface):
     TOKEN_CACHE_KEY = "cobranzas_banco:auth_token"
     TOKEN_TTL_SECONDS = 55 * 60  # el token Passport real dura ~1h; se cachea un poco menos por margen.
@@ -163,6 +173,9 @@ class LumenCobranzasBancoClient(CobranzasBancoClientInterface):
         self.password = password or settings.COBRANZAS_BANCO_PASSWORD
         self.agencia_sigla = agencia_sigla or settings.COBRANZAS_BANCO_AGENCIA_SIGLA
         self.timeout = timeout
+        # TLS de api-cobranzas-bancos: True, o la ruta a un .pem para confiar en el certificado de
+        # la .102 cuando se usa su IP directa (ver COBRANZAS_BANCO_VERIFY).
+        self.verify = verificacion_tls()
 
     def asegurar_caja_abierta(self) -> None:
         response = self._request_autenticado("get", "/v1/cajas/existe")
@@ -240,6 +253,7 @@ class LumenCobranzasBancoClient(CobranzasBancoClientInterface):
                 f"{self.base_url}/transacciones/{uuid}/documentos",
                 params={"formato": formato},
                 timeout=self.timeout,
+            verify=self.verify,
             )
         return response
 
@@ -282,6 +296,7 @@ class LumenCobranzasBancoClient(CobranzasBancoClientInterface):
                 "scope": "",
             },
             timeout=self.timeout,
+            verify=self.verify,
         )
         if not response.ok:
             raise CobranzasBancoAuthError(f"HTTP {response.status_code}: {response.text}")
@@ -300,6 +315,7 @@ class LumenCobranzasBancoClient(CobranzasBancoClientInterface):
             f"{self.base_url}{path}",
             headers={"Authorization": f"Bearer {token}"},
             timeout=self.timeout,
+            verify=self.verify,
             **kwargs,
         )
 

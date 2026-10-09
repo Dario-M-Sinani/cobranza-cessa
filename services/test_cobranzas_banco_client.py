@@ -66,7 +66,7 @@ class TestAutenticacion:
                 "password": "pass",
                 "scope": "",
             },
-            timeout=30,
+            timeout=30, verify=True,
         )
         assert mock_request.call_count == 2
 
@@ -103,7 +103,7 @@ class TestFlujoDeCobro:
 
         mock_request.assert_called_once_with(
             "get", "https://cobranzas.example/v1/cajas/existe",
-            headers={"Authorization": "Bearer tok"}, timeout=30,
+            headers={"Authorization": "Bearer tok"}, timeout=30, verify=True,
         )
 
     def test_asegurar_caja_abierta_apertura_si_no_existe(self):
@@ -133,7 +133,7 @@ class TestFlujoDeCobro:
 
         mock_request.assert_called_once_with(
             "put", "https://cobranzas.example/v1/transacciones/uuid-1/pagar-otro-documento",
-            headers={"Authorization": "Bearer tok"}, timeout=30,
+            headers={"Authorization": "Bearer tok"}, timeout=30, verify=True,
             json={"detalle": [{"a": 1}], "documento": {"b": 2}},
         )
 
@@ -148,7 +148,7 @@ class TestFlujoDeCobro:
 
         mock_request.assert_called_once_with(
             "put", "https://cobranzas.example/v1/transacciones/uuid-1/pagar",
-            headers={"Authorization": "Bearer tok"}, timeout=30,
+            headers={"Authorization": "Bearer tok"}, timeout=30, verify=True,
             json={"detalle": [{"a": 1}]},
         )
 
@@ -218,7 +218,7 @@ class TestFlujoDeCobro:
         assert documento == {"nro_factura": "F-1"}
         mock_request.assert_called_once_with(
             "get", "https://cobranzas.example/v1/transacciones/uuid-1/documentos",
-            headers={"Authorization": "Bearer tok"}, timeout=30,
+            headers={"Authorization": "Bearer tok"}, timeout=30, verify=True,
             params={"formato": "json"},
         )
 
