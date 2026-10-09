@@ -22,6 +22,9 @@ class SolicitudLiquidacion(models.Model):
         PENDIENTE = "pendiente", "Pendiente"
         FACTURADO = "facturado", "Facturado"
         ERROR = "error", "Error"
+        # Revisado a mano y cerrado sin factura (ej. pruebas viejas, o regularizado por otra vía):
+        # no se vuelve a intentar pagar aunque cessa-laravel lo reenvíe, y no cuenta para alertas.
+        DESCARTADO = "descartado", "Descartado"
 
     # Único por diseño en el sistema de origen (alias del Recibo de
     # cessa-laravel) -- sirve como clave de idempotencia: si el mismo aviso
@@ -53,6 +56,8 @@ class SolicitudLiquidacion(models.Model):
     procesado_en = models.DateTimeField(null=True, blank=True)
     # Cuándo se avisó al equipo que este pago quedó sin factura (ver alertas.py); una sola vez.
     alertado_en = models.DateTimeField(null=True, blank=True)
+    # Por qué se descartó (estado DESCARTADO); quién y cuándo queda en la auditoría.
+    nota_descarte = models.CharField(max_length=255, blank=True, default="")
 
     class Meta:
         ordering = ["-recibido_en"]

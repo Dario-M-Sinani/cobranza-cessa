@@ -104,6 +104,8 @@ def liquidar_solicitud(solicitud: SolicitudLiquidacion) -> SolicitudLiquidacion:
 def _liquidar(solicitud: SolicitudLiquidacion) -> SolicitudLiquidacion:
     if solicitud.estado == SolicitudLiquidacion.Estado.FACTURADO:
         return solicitud  # ya liquidada -- idempotente, no se vuelve a pagar.
+    if solicitud.estado == SolicitudLiquidacion.Estado.DESCARTADO:
+        return solicitud  # cerrada a mano (ver panel "Descartar"): nunca se paga, aunque se reenvíe.
 
     if not settings.COBRANZAS_BANCO_DOCUMENTO_ENTE_ID or not settings.COBRANZAS_BANCO_DOCUMENTO_BANCO_ID:
         _marcar_error(

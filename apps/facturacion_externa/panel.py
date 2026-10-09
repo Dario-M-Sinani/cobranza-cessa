@@ -34,6 +34,7 @@ class LiquidacionSerializer(serializers.ModelSerializer):
         fields = [
             "id", "alias", "nro_cliente", "monto", "moneda", "banco", "estado", "intentos", "error",
             "cobranzas_uuid", "fecha_pago", "recibido_en", "procesado_en", "tiene_pdf", "cantidad_comprobantes",
+            "nota_descarte",
         ]
         read_only_fields = fields
 
@@ -129,12 +130,36 @@ class LiquidacionViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, views
         return Response({clave: datos.get(clave) for clave in claves})
 
     @action(detail=True, methods=["post"])
+    def descartar(self, request, pk=None):
+        """Cierra sin factura una liquidación con error o pendiente (revisada a mano): no se
+        vuelve a intentar pagar y deja de contar para alertas. Pide un motivo; queda en auditoría."""
+        motivo = str(request.data.get("motivo") or "").strip()
+        if len(motivo) < 5:
+            return Response({"detail": "Indica el motivo (al menos 5 caracteres)."}, status=status.HTTP_400_BAD_REQUEST)
+        with _lock_liquidacion(int(pk)) as obtenido:
+            if not obtenido:
+                return Response({"detail": "Se está procesando; espera unos segundos."}, status=status.HTTP_409_CONFLICT)
+            solicitud = self.get_object()
+            if solicitud.estado not in (SolicitudLiquidacion.Estado.ERROR, SolicitudLiquidacion.Estado.PENDIENTE):
+                return Response({"detail": f"No se puede descartar en estado {solicitud.estado}."}, status=status.HTTP_409_CONFLICT)
+            solicitud.estado = SolicitudLiquidacion.Estado.DESCARTADO
+            solicitud.nota_descarte = motivo[:255]
+            solicitud.save(update_fields=["estado", "nota_descarte"])
+            LogAuditoria.objects.create(
+                usuario=request.user, accion=f"Liquidación web: descartada -- {motivo}"[:255],
+                entidad_afectada=f"SolicitudLiquidacion:{solicitud.pk}",
+            )
+        return Response(LiquidacionSerializer(solicitud).data)
+
+    @action(detail=True, methods=["post"])
     def reintentar(self, request, pk=None):
         """Mismo reintento que hace cessa-laravel (liquidar_solicitud). Dos clics seguidos no
         procesan la misma liquidación a la vez: lock consultivo de Postgres por id, sin dejar
         una transacción de base abierta durante las llamadas a api-cobranzas (cada paso de
         liquidar_solicitud se guarda apenas ocurre, como siempre)."""
         solicitud = self.get_object()
+        if solicitud.estado == SolicitudLiquidacion.Estado.DESCARTADO:
+            return Response({"detail": "Está descartada: no se reintenta."}, status=status.HTTP_409_CONFLICT)
         if solicitud.estado == SolicitudLiquidacion.Estado.FACTURADO:
             return Response({"detail": "Ya está facturada."}, status=status.HTTP_409_CONFLICT)
         with _lock_liquidacion(solicitud.pk) as obtenido:
