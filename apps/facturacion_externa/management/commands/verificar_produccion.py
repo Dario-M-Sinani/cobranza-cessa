@@ -73,6 +73,9 @@ class Command(BaseCommand):
         base = settings.COBRANZAS_BANCO_BASE_URL or ""
         self._solo_prod("test" in base.lower(), f"COBRANZAS_BANCO_BASE_URL apunta a test: {base}", f"COBRANZAS_BANCO_BASE_URL={base}")
         usuario = settings.COBRANZAS_BANCO_USERNAME or ""
+        for nombre in ("CLIENT_ID", "CLIENT_SECRET", "USERNAME", "PASSWORD"):
+            if not getattr(settings, f"COBRANZAS_BANCO_{nombre}", ""):
+                self._r(ERROR, f"COBRANZAS_BANCO_{nombre} vacío (alta de CESSA Web en la .102)")
         self._solo_prod(
             usuario.upper() == "CABISAQR",
             "COBRANZAS_BANCO_USERNAME=CABISAQR es el cajero BISA QR de TEST",

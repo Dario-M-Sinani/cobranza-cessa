@@ -104,7 +104,8 @@ dj collectstatic --noinput | tail -1
 
 echo "== 7. Servicios systemd (creados, NO habilitados)"
 for unidad in gunicorn celery-worker celery-beat; do
-  sed -e "s#/opt/cobranza-cessa/#$PROD/#g; s#/opt/cobranza-cessa\$#$PROD#g; s#WorkingDirectory=/opt/cobranza-cessa#WorkingDirectory=$PROD#" \
+  # Una sola pasada por patrón: "/opt/cobranza-cessa/" (rutas) y la línea WorkingDirectory exacta.
+  sed -e "s#/opt/cobranza-cessa/#$PROD/#g; s#^WorkingDirectory=/opt/cobranza-cessa\$#WorkingDirectory=$PROD#" \
       -e "s#127.0.0.1:8001#127.0.0.1:8002#; s#/var/log/cobranza-cessa/#$LOGS/#g" \
       -e "s#^Description=cobranza_cessa#Description=cobranza_cessa PROD#" \
       "$PROD/deploy/$unidad.service" > "/etc/systemd/system/cobranza-cessa-prod-$unidad.service"
