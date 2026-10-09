@@ -1,8 +1,34 @@
 # Pase a producción — pagos QR web vía gateway
 
-Qué cambiar, en qué orden y cómo verificarlo. Estado al **2026-10-08**: en test el flujo
-completo funciona (cessa-laravel → gateway .88 → api-cobranzas .102 → SIIC → BKLDTA, pagos
-BISA y BNB facturados). Guía de trabajo diario: `docs/TRABAJO_REMOTO.md`.
+Qué cambiar, en qué orden y cómo verificarlo. En test el flujo completo funciona
+(cessa-laravel → gateway .88 → api-cobranzas .102 → SIIC → BKLDTA, pagos BISA y BNB
+facturados). Guía de trabajo diario: `docs/TRABAJO_REMOTO.md`.
+
+## Estado al 2026-10-09
+
+**Listo (apagado):** la instancia de producción está preparada en la .88 por
+`deploy/instalar_prod.sh`: `/opt/cobranza-cessa-prod`, base `cobranza_cessa_produccion`, Redis `/1`,
+gunicorn `:8002`, `.env` con claves nuevas y el SIIC prod de lectura (:6013, responde), CA de
+Cloudflare Origin instalada, servicios `cobranza-cessa-prod-*` **deshabilitados** y sitio nginx
+`cobranza-cessa-prod` **sin enlazar**. `verificar_produccion` da hoy 10 errores: son exactamente los
+datos que faltan (abajo). En test: verificación de deuda y monto antes de pagar, alertas por
+Telegram, conciliación diaria y pantalla "Pagos web" funcionando.
+
+**Falta (bloquea el pase):**
+
+| Quién | Qué |
+|---|---|
+| Administrador SIIC / .102 | Confirmar que producción es `.102:6002`; alta de CESSA Web como banco (cliente OAuth id/secreto, usuario cajero y contraseña, sigla de agencia); horario y cierre de esa caja |
+| Red de CESSA | Dominio público del gateway prod (DNS Cloudflare + NAT a la .88:443); opcional: activar el vhost `api-cobranzas-prod-6002` (si no, opción B de §2: línea en `/etc/hosts`) |
+| Contabilidad | Confirmar el ente del documento (test: 3 "DEPOSITO"); los ids de banco BISA/BNB salen del catálogo prod con `verificar_produccion` |
+| BNB / tesorería | Cuenta de destino en bolivianos (`BNB_QR_SIMPLE_DESTINATION_ACCOUNT_ID`, hoy `2`) |
+| Hostinger (FileZilla) | Subir CessaLanding `90d2868` (+ `public/build`); al pasar, el `.env` de §4 (la API key del gateway prod está en `/opt/cobranza-cessa-prod/.env`) |
+| Decisión | Si el panel de cajeras sale a prod o primero solo el pago web (§6; recomendado: solo pago web) |
+
+**El día del pase:** completar `/opt/cobranza-cessa-prod/.env` (§3) → `/etc/hosts` si se usa la
+opción B → `verificar_produccion` en **0 errores** (§5) → encender (§2 "Encender") → cessa-laravel
+prod (§4) → un pago real chico por BISA y otro por BNB → `conciliar_pagos` del día siguiente sin
+diferencias.
 
 ```
 cessa-laravel (Hostinger, prod)
