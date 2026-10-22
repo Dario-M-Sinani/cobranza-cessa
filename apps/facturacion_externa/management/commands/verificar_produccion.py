@@ -90,6 +90,18 @@ class Command(BaseCommand):
         self._r(OK, f"DEUDA_CLIENT_CLASS={settings.DEUDA_CLIENT_CLASS.rsplit('.', 1)[-1]} (panel de cajeras)")
         self._r(AVISO, f"MC4_BASE_URL={settings.MC4_BASE_URL or '(vacío)'}: confirmar que sea el de {'producción' if self.prod else 'test'} (QR del panel)")
 
+        # Callback único de SIP (sip_callback.py): sin esto los pagos BISA solo entran por consulta.
+        for nombre in ("SIP_CALLBACK_USERNAME", "SIP_CALLBACK_PASSWORD"):
+            if not getattr(settings, nombre, ""):
+                self._r(ERROR, f"{nombre} vacío: el callback de SIP rechaza todo (tiene que ser el registrado en el portal SIP)")
+        callback = settings.SIP_CALLBACK_URL or ""
+        self._r(OK if callback.startswith("https://") else ERROR, f"SIP_CALLBACK_URL={callback or '(vacío)'}")
+        reenvios = settings.SIP_CALLBACK_REENVIOS
+        self._r(
+            OK if reenvios else AVISO,
+            "SIP_CALLBACK_REENVIOS=" + (", ".join(f"{p}→{u}" for p, u in reenvios.items()) or "(vacío: los CESSA-* responden 9999)"),
+        )
+
         for nombre in ("ENTE_ID", "BANCO_ID"):
             valor = getattr(settings, f"COBRANZAS_BANCO_DOCUMENTO_{nombre}", "")
             self._r(OK if valor else ERROR, f"COBRANZAS_BANCO_DOCUMENTO_{nombre}={valor or '(vacío)'}")

@@ -61,6 +61,13 @@ CELERY_RESULT_BACKEND=redis://localhost:6379/1
 # Nueva: la misma va a COBRANZAS_GATEWAY_API_KEY de cessa-laravel PROD.
 API_KEY_CESSA_LARAVEL=$(nueva 40)
 
+# Callback único de SIP/BISA (apps/facturacion_externa/sip_callback.py). Usuario/clave: los
+# registrados en el portal SIP de prod. URL: la pública de este gateway prod.
+SIP_CALLBACK_USERNAME=
+SIP_CALLBACK_PASSWORD=
+SIP_CALLBACK_URL=https://<dominio prod del gateway>/api/externo/sip/confirmar-pago
+SIP_CALLBACK_REENVIOS=CESSA-=https://<dominio prod de la web>/api/pagos/sip/confirmar-pago
+
 # api-cobranzas-bancos PRODUCCIÓN (.102:6002). Opción B de PASE_A_PRODUCCION.md: con
 # "10.1.1.102 api-cobranzas-prod-6002.bo-com-assec.net" en /etc/hosts y la CA de Cloudflare Origin.
 # OJO: sin esa línea de /etc/hosts el dominio cae en la API de TEST (verificar_produccion lo detecta).

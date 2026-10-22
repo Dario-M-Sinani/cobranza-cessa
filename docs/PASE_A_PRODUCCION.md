@@ -118,6 +118,9 @@ sudo ln -s /etc/nginx/sites-available/cobranza-cessa-prod /etc/nginx/sites-enabl
 | `SIIC_DEUDA_TOKEN` | token de test | token aceptado por la API Nest prod |
 | `DEUDA_CLIENT_CLASS` | `SiicDeudaClient` | igual (solo lo usa el panel de cajeras) |
 | `MC4_*` | SIP de test | solo si el panel de cajeras va a prod (§6) |
+| `SIP_CALLBACK_USERNAME` / `_PASSWORD` | los registrados en el portal SIP | los registrados en el portal SIP de **prod** (callback único: ver `sip_callback.py`) |
+| `SIP_CALLBACK_URL` | `https://test01.cessa.com.bo/api/externo/sip/confirmar-pago` | `https://<dominio prod del gateway>/api/externo/sip/confirmar-pago` |
+| `SIP_CALLBACK_REENVIOS` | `CESSA-=https://test.cessa.com.bo/api/pagos/sip/confirmar-pago` | `CESSA-=https://<web prod>/api/pagos/sip/confirmar-pago` |
 | `SECURE_SSL_REDIRECT` / `*_COOKIE_SECURE` | `False` | `False` (TLS lo termina nginx/Cloudflare) |
 | `ALERTAS_TELEGRAM_BOT_TOKEN` / `ALERTAS_TELEGRAM_CHAT_IDS` | (sin configurar) | bot y chats del equipo que reciben los avisos de pagos sin factura |
 | `ALERTAS_EMAIL_DESTINOS` | (sin configurar) | correos que reciben los avisos (requiere `EMAIL_HOST` etc.) |
@@ -137,7 +140,8 @@ Código: `main` actual (incluye `d6dce24` deuda vía gateway y `c7c1756` histori
 | `COBRANZAS_FACTURACION_ENABLED` | `true` |
 | `PAGOS_SIMULACION_HABILITADA` | **`false`** (si no, se puede "pagar" sin dinero y factura en prod) |
 | `CESSA_API_URL` / `CESSA_API_TOKEN` | SIIC prod (catálogos, trámites, calculadora) |
-| `SIP_*` | credenciales SIP/BISA de **producción**; el callback de SIP apuntando a la web prod |
+| `SIP_*` | credenciales SIP/BISA de **producción** |
+| `SIP_CALLBACK_URL` | igual a `SIP_CALLBACK_URL` del gateway prod (SIP avisa al gateway, que reenvía los `CESSA-*` con la API key) |
 | `BNB_QR_SIMPLE_BASE_URL` | `https://marketapi.bnb.com.bo` |
 | `BNB_QR_SIMPLE_ACCOUNT_ID` / `_AUTHORIZATION_ID` | los de producción |
 | `BNB_QR_SIMPLE_DESTINATION_ACCOUNT_ID` | el que confirme tesorería (§1) |
