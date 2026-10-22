@@ -185,6 +185,18 @@ COBRANZAS_BANCO_DOCUMENTO_BANCO_IDS = {
 # cajera/supervisor para esto.
 API_KEY_CESSA_LARAVEL = env("API_KEY_CESSA_LARAVEL", default="")
 
+# Callback único de SIP/BISA (apps/facturacion_externa/sip_callback.py): SIP manda un solo Basic
+# Auth por cuenta, así que todos los sistemas que generan QR SIP mandan esta misma URL en
+# generaQr y el gateway decide por el prefijo del alias. Los "txqr-" son de este panel; el resto
+# se reenvía según SIP_CALLBACK_REENVIOS ("PREFIJO=url,PREFIJO=url"), con X-Api-Key =
+# API_KEY_CESSA_LARAVEL. Ej.: CESSA-=https://test.cessa.com.bo/api/pagos/sip/confirmar-pago
+SIP_CALLBACK_USERNAME = env("SIP_CALLBACK_USERNAME", default="")
+SIP_CALLBACK_PASSWORD = env("SIP_CALLBACK_PASSWORD", default="")
+SIP_CALLBACK_URL = env("SIP_CALLBACK_URL", default="")
+SIP_CALLBACK_REENVIOS = dict(
+    par.strip().split("=", 1) for par in env("SIP_CALLBACK_REENVIOS", default="").split(",") if "=" in par
+)
+
 # Horario operativo dentro del cual un cajero puede abrir su Caja sin
 # intervención de un supervisor/administrador (ver apps/cobranza/horario.py).
 # Horas 0-23, real de CESSA todavía sin confirmar -- ajustar por entorno.

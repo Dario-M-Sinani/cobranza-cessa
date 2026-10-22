@@ -6,6 +6,7 @@ from __future__ import annotations
 from decimal import Decimal
 from datetime import date, timedelta
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -156,6 +157,7 @@ def generar_transaccion_qr(
         moneda="BOB",
         descripcion=f"Cobranza CESSA - {deuda.cliente.nombre}",
         fecha_vencimiento=date.today() + timedelta(days=QR_VENCIMIENTO_DIAS),
+        callback_url=settings.SIP_CALLBACK_URL,
     )
 
     try:

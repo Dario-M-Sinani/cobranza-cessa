@@ -1,5 +1,7 @@
 from django.urls import path
 
+from .sip_callback import SipCallbackView
+
 from .views import (
     ComprobanteJsonLiquidacionView,
     ComprobanteLiquidacionView,
@@ -11,6 +13,8 @@ from .views import (
 )
 
 urlpatterns = [
+    path("sip/confirmar-pago", SipCallbackView.as_view(), name="sip-callback"),
+    path("sip/confirmar-pago/", SipCallbackView.as_view()),
     path("consulta/cliente/", ConsultaClienteExternaView.as_view(), name="consulta-cliente-externa"),
     path("consulta/clientes/<int:nro_cliente>/pagos/", PagosClienteExternaView.as_view(), name="pagos-cliente-externa"),
     path("consulta/comprobantes/pdf/", ComprobantePdfExternaView.as_view(), name="comprobante-pdf-externa"),
