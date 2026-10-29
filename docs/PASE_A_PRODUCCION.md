@@ -4,6 +4,13 @@ Qué cambiar, en qué orden y cómo verificarlo. En test el flujo completo funci
 (cessa-laravel → gateway .88 → api-cobranzas .102 → SIIC → BKLDTA, pagos BISA y BNB
 facturados). Guía de trabajo diario: `docs/TRABAJO_REMOTO.md`.
 
+## 2026-10-29: solo Banco BISA
+
+cessa-laravel genera QR solo con BISA (`PAGOS_QR_BANCOS=sip_bisa`): lo del BNB (cuenta de destino,
+`COBRANZAS_BANCO_DOCUMENTO_BANCO_ID_BNB`) ya no bloquea. Los datos del cajero web se cargan en la
+.88 con `sudo bash deploy/cargar_cajero_prod.sh [nro_cliente]` (pide las claves sin eco, respalda
+el `.env` y corre `verificar_produccion`).
+
 ## Estado al 2026-10-09
 
 **Listo (apagado):** la instancia de producción está preparada en la .88 por
