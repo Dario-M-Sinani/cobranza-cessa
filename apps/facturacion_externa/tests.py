@@ -720,7 +720,7 @@ class TestMontoContraComprobantes:
 
 @pytest.mark.django_db
 class TestVerificarProduccion:
-    def _correr(self, settings, entorno, base_url="https://api-cobranzas-test.bo-com-assec.net", usuario="CABISAQR"):
+    def _correr(self, settings, entorno, base_url="https://api-cobranzas-test.bo-com-assec.net", usuario="CABISAQR", ids=None):
         from io import StringIO
         from unittest.mock import patch
 
@@ -731,7 +731,7 @@ class TestVerificarProduccion:
         settings.COBRANZAS_BANCO_USERNAME = usuario
         settings.SIIC_DEUDA_BASE_URL = "http://127.0.0.1:6012"
         settings.API_KEY_CESSA_LARAVEL = "x" * 40
-        settings.COBRANZAS_BANCO_DOCUMENTO_BANCO_IDS = {"sip_bisa": "4", "bnb": "5"}
+        settings.COBRANZAS_BANCO_DOCUMENTO_BANCO_IDS = ids or {"sip_bisa": "4", "bnb": "5"}
         salida = StringIO()
         with patch(
             "apps.facturacion_externa.management.commands.verificar_produccion.get_cobranzas_banco_client",
@@ -754,6 +754,14 @@ class TestVerificarProduccion:
         assert "[ERROR] COBRANZAS_BANCO_USERNAME=CABISAQR" in texto
         assert "[ERROR] SIIC_DEUDA_BASE_URL apunta al SIIC de test" in texto
 
+    def test_sin_banco_id_del_bnb_es_solo_aviso(self, settings):
+        # cessa-laravel cobra solo con BISA (PAGOS_QR_BANCOS): el id del BNB puede quedar vacío.
+        settings.COBRANZAS_BANCO_DOCUMENTO_ENTE_ID = "3"
+        settings.COBRANZAS_BANCO_DOCUMENTO_BANCO_ID = "4"
+        texto, _ = self._correr(settings, "prod", ids={"sip_bisa": "4", "bnb": ""})
+        assert "[AVISO] banco_id para bnb=(vacío" in texto
+        assert "[OK   ] banco_id para sip_bisa=4" in texto
+
     def test_en_test_lo_de_test_esta_bien(self, settings):
         texto, _ = self._correr(settings, "test")
         assert "[OK   ] COBRANZAS_BANCO_BASE_URL=https://api-cobranzas-test.bo-com-assec.net (test)" in texto
@@ -775,7 +783,8 @@ class TestIdentidadDeCobranzas:
         settings.COBRANZAS_BANCO_BASE_URL = "https://api-cobranzas-prod-6002.bo-com-assec.net"
         settings.COBRANZAS_BANCO_VERIFY = verify
         salida = StringIO()
-        respuesta = Mock(text=portada)
+        # status_code: el mismo requests.get falso lo usa también el chequeo del SIIC de la deuda.
+        respuesta = Mock(text=portada, status_code=200)
         with patch(
             "apps.facturacion_externa.management.commands.verificar_produccion.get_cobranzas_banco_client",
             side_effect=CobranzasBancoError("sin red"),

@@ -106,8 +106,10 @@ class Command(BaseCommand):
             valor = getattr(settings, f"COBRANZAS_BANCO_DOCUMENTO_{nombre}", "")
             self._r(OK if valor else ERROR, f"COBRANZAS_BANCO_DOCUMENTO_{nombre}={valor or '(vacío)'}")
         for canal, valor in settings.COBRANZAS_BANCO_DOCUMENTO_BANCO_IDS.items():
+            # cessa-laravel cobra solo con BISA desde el 2026-10-29 (PAGOS_QR_BANCOS): sin id del
+            # BNB no hay nada que registrar mal.
             self._r(
-                OK if valor else ERROR,
+                OK if valor else (AVISO if canal == "bnb" else ERROR),
                 f"banco_id para {canal}={valor or '(vacío: quedaría como BANCO_ID por defecto)'}",
             )
 
