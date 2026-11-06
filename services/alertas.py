@@ -44,7 +44,7 @@ def notificar(asunto: str, texto: str) -> int:
     destinos = settings.ALERTAS_EMAIL_DESTINOS
     if destinos:
         try:
-            enviados += send_mail(f"[Cobranza CESSA] {asunto}", texto, None, destinos, fail_silently=False) and len(destinos)
+            enviados += send_mail(f"[{settings.ALERTAS_EMAIL_PREFIJO}] {asunto}", texto, None, destinos, fail_silently=False) and len(destinos)
         except Exception as exc:  # noqa: BLE001 -- SMTP mal configurado no debe romper nada
             logger.warning("alerta email: %s", exc)
 

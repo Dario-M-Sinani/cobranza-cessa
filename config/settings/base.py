@@ -242,6 +242,8 @@ CAJA_HORARIO_FIN = env.int("CAJA_HORARIO_FIN", default=18)
 ALERTAS_TELEGRAM_BOT_TOKEN = env("ALERTAS_TELEGRAM_BOT_TOKEN", default="")
 ALERTAS_TELEGRAM_CHAT_IDS = env.list("ALERTAS_TELEGRAM_CHAT_IDS", default=[])
 ALERTAS_EMAIL_DESTINOS = env.list("ALERTAS_EMAIL_DESTINOS", default=[])
+# Prefijo del asunto de los correos de alerta: "[Notificaciones Web CESSA] ...".
+ALERTAS_EMAIL_PREFIJO = env("ALERTAS_EMAIL_PREFIJO", default="Notificaciones Web CESSA")
 # Errores que no son definitivos ni de caja: se avisa recién a partir de este intento fallido.
 ALERTAS_INTENTOS_MINIMOS = env.int("ALERTAS_INTENTOS_MINIMOS", default=3)
 # Para el enlace "Ver: .../pagos-web" de las alertas (ej. https://10.1.1.88).

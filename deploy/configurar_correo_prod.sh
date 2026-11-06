@@ -33,7 +33,7 @@ pedir EMAIL_PORT "Puerto" "" 587
 pedir EMAIL_USE_TLS "TLS (true/false)" "" true
 pedir EMAIL_HOST_USER "Cuenta (usuario SMTP)" "" notificacionescessa@gmail.com
 pedir EMAIL_HOST_PASSWORD "Contraseña de aplicación" secreto
-pedir DEFAULT_FROM_EMAIL "Remitente" "" "Cobranza CESSA <${NUEVO_EMAIL_HOST_USER}>"
+pedir DEFAULT_FROM_EMAIL "Remitente" "" "Notificaciones Web CESSA <${NUEVO_EMAIL_HOST_USER}>"
 pedir ALERTAS_EMAIL_DESTINOS "Destinatarios de las alertas (separados por coma)"
 [ -n "$NUEVO_EMAIL_HOST_PASSWORD" ] || { echo "Falta la contraseña de aplicación."; exit 1; }
 [ -n "$NUEVO_ALERTAS_EMAIL_DESTINOS" ] || { echo "Faltan los destinatarios."; exit 1; }
