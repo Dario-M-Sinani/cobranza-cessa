@@ -132,4 +132,4 @@ class TestResumenYEnvio:
         settings.ALERTAS_TELEGRAM_BOT_TOKEN = ""
         settings.ALERTAS_EMAIL_DESTINOS = ["cobranzas@cessa.com.bo"]
         assert servicio.notificar("Pago web sin factura", "detalle") == 1
-        assert mailoutbox[0].subject == "[Cobranza CESSA] Pago web sin factura"
+        assert mailoutbox[0].subject == "[Notificaciones Web CESSA] Pago web sin factura"
