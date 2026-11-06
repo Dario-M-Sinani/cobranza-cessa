@@ -30,6 +30,8 @@ from rest_framework.views import APIView
 from apps.cobranza import services as cobranza_services
 from apps.cobranza.models import TransaccionQR
 
+from .models import AvisoSip
+
 logger = logging.getLogger(__name__)
 
 PREFIJO_PANEL = "txqr-"
@@ -55,6 +57,14 @@ def _basic_auth_valido(request) -> bool:
     return usuario_ok and clave_ok
 
 
+def _guardar_aviso(alias: str, datos) -> None:
+    """Para el reporte de cobros (pagador, documento, N° de orden). Nunca frena el aviso."""
+    try:
+        AvisoSip.objects.create(alias=alias, datos=dict(datos))
+    except Exception:  # noqa: BLE001 -- el registro es accesorio; el pago no puede esperar por esto
+        logger.exception("sip_callback.aviso_no_guardado alias=%s", alias)
+
+
 def _respuesta(codigo: str, mensaje: str, http=status.HTTP_200_OK) -> Response:
     return Response({"codigo": codigo, "mensaje": mensaje}, status=http)
 
@@ -71,6 +81,7 @@ class SipCallbackView(APIView):
         if not isinstance(alias, str) or not alias.strip() or len(alias) > 50:
             return _respuesta("9998", "Datos inválidos: alias es obligatorio", status.HTTP_400_BAD_REQUEST)
         alias = alias.strip()
+        _guardar_aviso(alias, request.data)
 
         if alias.startswith(PREFIJO_PANEL):
             return self._confirmar_en_panel(alias)

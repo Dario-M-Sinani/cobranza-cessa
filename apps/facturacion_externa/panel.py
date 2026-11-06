@@ -61,6 +61,7 @@ class LiquidacionViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, views
 
     permission_classes = [IsAuthenticated, EsSupervisorOAdmin]
     LIMITE = 300
+    LIMITE_EXPORTAR = 5000
 
     def get_serializer_class(self):
         return LiquidacionDetalleSerializer if self.action == "retrieve" else LiquidacionSerializer
@@ -89,6 +90,21 @@ class LiquidacionViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, views
 
     def list(self, request, *args, **kwargs):
         return Response(LiquidacionSerializer(self.get_queryset()[: self.LIMITE], many=True).data)
+
+    @action(detail=False, methods=["get"])
+    def exportar(self, request):
+        """Excel del reporte de cobros (reporte.py) con los mismos filtros que la lista, hasta
+        LIMITE_EXPORTAR filas (la lista muestra 300)."""
+        from . import reporte
+
+        solicitudes = self.get_queryset()[: self.LIMITE_EXPORTAR]
+        contenido = reporte.excel(solicitudes, generado_por=request.user.get_username())
+        nombre = f"cobros-qr-{timezone.localtime():%Y-%m-%d-%H%M%S}.xlsx"
+        respuesta = HttpResponse(
+            contenido, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        respuesta["Content-Disposition"] = f'attachment; filename="{nombre}"'
+        return respuesta
 
     @action(detail=False, methods=["get"])
     def resumen(self, request):

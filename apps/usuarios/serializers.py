@@ -1,3 +1,4 @@
+from django.conf import settings
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
@@ -16,6 +17,7 @@ class TokenObtainPairConRolSerializer(TokenObtainPairSerializer):
         token["rol"] = user.rol
         token["activo"] = user.activo
         token["username"] = user.username
+        token["solo_consulta"] = settings.PANEL_SOLO_CONSULTA
         return token
 
 

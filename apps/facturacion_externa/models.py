@@ -17,15 +17,20 @@ class SolicitudLiquidacion(models.Model):
 
     class Origen(models.TextChoices):
         CESSA_LARAVEL_WEB = "cessa_laravel_web", "cessa-laravel (pago QR web)"
+        CESSA_LARAVEL_PANEL = "cessa_laravel_panel", "cessa-laravel (QR generado desde el panel)"
         BOT_TELEGRAM = "bot_telegram", "bot-telegram (pago QR por Telegram)"
 
-    # Alias del bot de Telegram (bot-telegram-cessa): sus pagos usan la misma API key que la web.
+    # El canal sale del alias (la web y el bot usan la misma API key): CESSA-WEB- lo genera el
+    # cliente en la web, CESSA-ADMIN- el panel de administración de la web, CESSA-BOT- el bot.
     PREFIJO_BOT_TELEGRAM = "CESSA-BOT-"
+    PREFIJO_PANEL_WEB = "CESSA-ADMIN-"
 
     @classmethod
     def origen_de_alias(cls, alias: str) -> str:
         if alias.startswith(cls.PREFIJO_BOT_TELEGRAM):
             return cls.Origen.BOT_TELEGRAM
+        if alias.startswith(cls.PREFIJO_PANEL_WEB):
+            return cls.Origen.CESSA_LARAVEL_PANEL
         return cls.Origen.CESSA_LARAVEL_WEB
 
     class Estado(models.TextChoices):
@@ -74,3 +79,20 @@ class SolicitudLiquidacion(models.Model):
 
     def __str__(self):
         return f"SolicitudLiquidacion#{self.pk} [{self.estado}] {self.alias}"
+
+
+class AvisoSip(models.Model):
+    """Cada aviso de pago que SIP manda al callback único (sip_callback.py), tal cual llegó y con
+    Basic Auth válido. De acá salen el pagador, su documento y el N° de orden para el reporte de
+    cobros: sirve para todos los canales (web, panel de la web, bot), sin pedirle nada a cessa-laravel
+    ni al bot. Puede haber varios por alias (SIP reintenta); el reporte usa el último."""
+
+    alias = models.CharField(max_length=100, db_index=True)
+    datos = models.JSONField(encoder=DjangoJSONEncoder)
+    recibido_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-recibido_en"]
+
+    def __str__(self):
+        return f"AvisoSip#{self.pk} {self.alias}"

@@ -45,7 +45,12 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "apps.usuarios.middleware.SoloConsultaMiddleware",
 ]
+
+# Gateway de producción: el panel es solo para ver Pagos web/Dashboard; cobrar y caja dan 403
+# (apps/usuarios/middleware.py) y el frontend los oculta.
+PANEL_SOLO_CONSULTA = env.bool("PANEL_SOLO_CONSULTA", default=False)
 
 ROOT_URLCONF = "config.urls"
 
