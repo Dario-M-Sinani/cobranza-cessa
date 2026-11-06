@@ -35,6 +35,10 @@ class SolicitudLiquidacionEntradaSerializer(serializers.Serializer):
     fecha_pago = serializers.DateTimeField()
     numero_orden_originante = serializers.CharField(max_length=50, allow_blank=True, required=False, default="")
     banco = serializers.CharField(max_length=30, allow_blank=True, required=False, default="")
+    # Quién pagó (lo manda el bot, que lo lee del estado del QR en SIP): respaldo del aviso de SIP
+    # para el reporte de cobros, por si el aviso no llegó.
+    pagador_nombre = serializers.CharField(max_length=250, allow_blank=True, required=False, default="")
+    pagador_documento = serializers.CharField(max_length=50, allow_blank=True, required=False, default="")
 
 
 class SolicitudLiquidacionSalidaSerializer(serializers.ModelSerializer):

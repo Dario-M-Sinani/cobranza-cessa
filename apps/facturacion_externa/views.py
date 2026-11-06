@@ -11,7 +11,7 @@ from services.deuda_client import (
     pagos_cliente_siic,
 )
 
-from .models import SolicitudLiquidacion
+from .models import AvisoSip, SolicitudLiquidacion
 from .permissions import TieneApiKeyServicioExterno
 from .serializers import SolicitudLiquidacionEntradaSerializer, SolicitudLiquidacionSalidaSerializer
 from .services import liquidar_solicitud
@@ -45,6 +45,15 @@ class LiquidarReciboExternoView(APIView):
                 "banco": datos.get("banco", ""),
             },
         )
+
+        if datos.get("pagador_nombre") and not AvisoSip.objects.filter(alias=solicitud.alias).exists():
+            AvisoSip.objects.create(alias=solicitud.alias, datos={
+                "alias": solicitud.alias,
+                "nombreCliente": datos["pagador_nombre"],
+                "documentoCliente": datos.get("pagador_documento", ""),
+                "numeroOrdenOriginante": datos.get("numero_orden_originante", ""),
+                "_fuente": "liquidar",
+            })
 
         solicitud = liquidar_solicitud(solicitud)
 

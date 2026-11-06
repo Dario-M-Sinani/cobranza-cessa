@@ -136,3 +136,24 @@ def test_detalle_del_panel_trae_glosa_pagador_y_generado_por():
     assert datos["pagador"] == "CLIENTE DE PRUEBA"
     assert datos["documento_pagador"] == "1234567"
     assert datos["creado_en"].startswith("2026-11-06T13:59:11")
+
+
+@pytest.mark.django_db
+def test_liquidar_del_bot_guarda_el_pagador_si_no_llego_el_aviso(settings, monkeypatch):
+    from . import services as facturacion_services
+    from .tests import FakeCobranzasBancoClientDeTest
+
+    settings.API_KEY_CESSA_LARAVEL = "k"
+    monkeypatch.setattr(facturacion_services, "get_cobranzas_banco_client", lambda: FakeCobranzasBancoClientDeTest())
+    cliente = APIClient()
+    cliente.credentials(HTTP_X_API_KEY="k")
+    cuerpo = {
+        "alias": "CESSA-BOT-20261106-ZZ01", "nro_cliente": "100100", "monto": "10.00", "moneda": "BOB",
+        "detalle": [{"importe": "10.00", "debito_credito": "DEBITO"}], "fecha_pago": "2026-11-06T14:00:00-04:00",
+        "banco": "sip_bisa", "pagador_nombre": "CLIENTE DE PRUEBA", "pagador_documento": "1234567",
+    }
+    cliente.post("/api/externo/recibos-web/liquidar/", cuerpo, format="json")
+    cliente.post("/api/externo/recibos-web/liquidar/", cuerpo, format="json")  # reintento: no duplica
+
+    assert AvisoSip.objects.filter(alias="CESSA-BOT-20261106-ZZ01").count() == 1
+    assert reporte.filas(SolicitudLiquidacion.objects.all())[0].documento_pagador == "1234567"
