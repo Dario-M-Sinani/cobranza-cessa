@@ -6,6 +6,9 @@ decide por el prefijo del alias:
 
 - `txqr-` (QR del panel de cobranza): se confirma contra SIP con `verificar_pago()` -- igual
   que la tarea periódica, así un aviso falso no puede marcar nada.
+- Prefijos de `settings.SIP_CALLBACK_SIN_REENVIO` (hoy `CESSA-BOT-`, el bot de Telegram): se
+  responde `0000` sin reenviar. Ese sistema no tiene URL pública y detecta el pago consultando
+  el estado del QR a SIP por su cuenta; el aviso solo se registra en el log.
 - Prefijos de `settings.SIP_CALLBACK_REENVIOS` (hoy `CESSA-` → cessa-laravel): se reenvía el
   mismo body con `X-Api-Key`, y se le devuelve a SIP lo que responda el destino.
 
@@ -71,6 +74,11 @@ class SipCallbackView(APIView):
 
         if alias.startswith(PREFIJO_PANEL):
             return self._confirmar_en_panel(alias)
+
+        # Antes que los reenvíos: "CESSA-BOT-" también empieza con "CESSA-".
+        if any(alias.startswith(prefijo) for prefijo in settings.SIP_CALLBACK_SIN_REENVIO):
+            logger.info("sip_callback.sin_reenvio alias=%s", alias)
+            return _respuesta("0000", "Registro Exitoso")
 
         for prefijo, url in settings.SIP_CALLBACK_REENVIOS.items():
             if alias.startswith(prefijo):

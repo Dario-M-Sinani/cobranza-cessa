@@ -196,6 +196,9 @@ SIP_CALLBACK_URL = env("SIP_CALLBACK_URL", default="")
 SIP_CALLBACK_REENVIOS = dict(
     par.strip().split("=", 1) for par in env("SIP_CALLBACK_REENVIOS", default="").split(",") if "=" in par
 )
+# Prefijos que se responden 0000 sin reenviar (se miran antes que SIP_CALLBACK_REENVIOS): el bot
+# de Telegram (alias CESSA-BOT-...) no tiene URL pública y detecta el pago consultando a SIP.
+SIP_CALLBACK_SIN_REENVIO = env.list("SIP_CALLBACK_SIN_REENVIO", default=["CESSA-BOT-"])
 
 # Horario operativo dentro del cual un cajero puede abrir su Caja sin
 # intervención de un supervisor/administrador (ver apps/cobranza/horario.py).

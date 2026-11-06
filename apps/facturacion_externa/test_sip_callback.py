@@ -29,6 +29,7 @@ def config_sip(settings):
     settings.SIP_CALLBACK_USERNAME = "sip-user"
     settings.SIP_CALLBACK_PASSWORD = "sip-pass"
     settings.SIP_CALLBACK_REENVIOS = {"CESSA-": LARAVEL}
+    settings.SIP_CALLBACK_SIN_REENVIO = ["CESSA-BOT-"]
     settings.API_KEY_CESSA_LARAVEL = "clave-laravel"
 
 
@@ -129,6 +130,19 @@ class TestSipCallback:
         assert url == LARAVEL
         assert enviado == cuerpo
         assert headers["X-Api-Key"] == "clave-laravel"
+
+    def test_alias_del_bot_responde_0000_sin_reenviar(self, monkeypatch):
+        def post_falso(*args, **kwargs):
+            raise AssertionError("no tiene que reenviar los CESSA-BOT-")
+
+        monkeypatch.setattr(sip_callback.requests, "post", post_falso)
+        respuesta = APIClient().post(URL, {"alias": "CESSA-BOT-20261106-AB12"}, format="json", **_auth())
+        assert respuesta.status_code == 200
+        assert respuesta.json() == {"codigo": "0000", "mensaje": "Registro Exitoso"}
+
+    def test_alias_del_bot_sin_auth_sigue_rechazado(self):
+        respuesta = APIClient().post(URL, {"alias": "CESSA-BOT-1"}, format="json")
+        assert respuesta.status_code == 401
 
     def test_laravel_caido_responde_9999_para_que_sip_reintente(self, monkeypatch):
         def post_falso(*args, **kwargs):
