@@ -15,7 +15,7 @@ ENV="$PROD/.env"
 [ "$(id -u)" = 0 ] || { echo "Correr con sudo."; exit 1; }
 [ -f "$ENV" ] || { echo "No existe $ENV: primero sudo bash deploy/instalar_prod.sh"; exit 1; }
 
-actual() { grep -E "^$1=" "$ENV" | head -1 | cut -d= -f2- | tr -d '\r'; }
+actual() { { grep -E "^$1=" "$ENV" || true; } | head -1 | cut -d= -f2- | tr -d '\r'; }
 pedir() { # pedir VARIABLE "texto" [secreto] [valor por defecto si está vacío]
   local var=$1 texto=$2 secreto=${3:-} defecto=${4:-} previo valor
   previo=$(actual "$var"); [ -n "$previo" ] || previo=$defecto

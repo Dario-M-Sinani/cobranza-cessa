@@ -15,7 +15,7 @@ ENV="$PROD/.env"
 [ "$(id -u)" = 0 ] || { echo "Correr con sudo."; exit 1; }
 [ -f "$ENV" ] || { echo "No existe $ENV"; exit 1; }
 
-actual() { grep -E "^$1=" "$ENV" | head -1 | cut -d= -f2- | tr -d '\r'; }
+actual() { { grep -E "^$1=" "$ENV" || true; } | head -1 | cut -d= -f2- | tr -d '\r'; }
 
 previo=$(actual ALERTAS_TELEGRAM_BOT_TOKEN)
 read -r -s -p "Token del bot de @BotFather [$( [ -n "$previo" ] && echo 'cargado' || echo 'vacío' )]: " TOKEN; echo

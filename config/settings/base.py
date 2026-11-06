@@ -247,6 +247,17 @@ ALERTAS_INTENTOS_MINIMOS = env.int("ALERTAS_INTENTOS_MINIMOS", default=3)
 # Para el enlace "Ver: .../pagos-web" de las alertas (ej. https://10.1.1.88).
 PANEL_URL = env("PANEL_URL", default="")
 
+# Correo saliente (lo usa ALERTAS_EMAIL_DESTINOS). Sin EMAIL_HOST, Django intenta localhost:25
+# y en la .88 no hay servidor de correo. Con Gmail: smtp.gmail.com, 587, TLS, la cuenta y una
+# "contraseña de aplicación" (no la clave normal). Ver deploy/configurar_correo_prod.sh.
+EMAIL_HOST = env("EMAIL_HOST", default="localhost")
+EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=15)
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default=EMAIL_HOST_USER or "webmaster@localhost")
+
 CELERY_BEAT_SCHEDULE["resumen-diario-pagos-web-con-error"] = {
     "task": "apps.facturacion_externa.tasks.resumen_diario_errores",
     "schedule": crontab(hour=8, minute=0),
