@@ -32,7 +32,7 @@ class LiquidacionSerializer(serializers.ModelSerializer):
     class Meta:
         model = SolicitudLiquidacion
         fields = [
-            "id", "alias", "nro_cliente", "monto", "moneda", "banco", "estado", "intentos", "error",
+            "id", "alias", "origen", "nro_cliente", "monto", "moneda", "banco", "estado", "intentos", "error",
             "cobranzas_uuid", "fecha_pago", "recibido_en", "procesado_en", "tiene_pdf", "cantidad_comprobantes",
             "nota_descarte",
         ]
@@ -56,7 +56,7 @@ def _inicio_del_dia(fecha):
 
 
 class LiquidacionViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
-    """GET /api/liquidaciones/?estado=error&cliente=115997&banco=bnb&desde=2026-10-01&hasta=2026-10-08
+    """GET /api/liquidaciones/?estado=error&cliente=115997&banco=bnb&origen=bot_telegram&desde=2026-10-01&hasta=2026-10-08
     (las 300 más nuevas que cumplan el filtro)."""
 
     permission_classes = [IsAuthenticated, EsSupervisorOAdmin]
@@ -74,6 +74,8 @@ class LiquidacionViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, views
             qs = qs.filter(nro_cliente=p["cliente"].strip())
         if p.get("banco"):
             qs = qs.filter(banco=p["banco"])
+        if p.get("origen") in SolicitudLiquidacion.Origen.values:
+            qs = qs.filter(origen=p["origen"])
         for campo, filtro in (("desde", "recibido_en__gte"), ("hasta", "recibido_en__lt")):
             if p.get(campo):
                 try:

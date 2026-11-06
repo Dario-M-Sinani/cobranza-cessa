@@ -17,6 +17,16 @@ class SolicitudLiquidacion(models.Model):
 
     class Origen(models.TextChoices):
         CESSA_LARAVEL_WEB = "cessa_laravel_web", "cessa-laravel (pago QR web)"
+        BOT_TELEGRAM = "bot_telegram", "bot-telegram (pago QR por Telegram)"
+
+    # Alias del bot de Telegram (bot-telegram-cessa): sus pagos usan la misma API key que la web.
+    PREFIJO_BOT_TELEGRAM = "CESSA-BOT-"
+
+    @classmethod
+    def origen_de_alias(cls, alias: str) -> str:
+        if alias.startswith(cls.PREFIJO_BOT_TELEGRAM):
+            return cls.Origen.BOT_TELEGRAM
+        return cls.Origen.CESSA_LARAVEL_WEB
 
     class Estado(models.TextChoices):
         PENDIENTE = "pendiente", "Pendiente"

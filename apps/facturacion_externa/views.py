@@ -35,6 +35,7 @@ class LiquidarReciboExternoView(APIView):
         solicitud, _creada = SolicitudLiquidacion.objects.get_or_create(
             alias=datos["alias"],
             defaults={
+                "origen": SolicitudLiquidacion.origen_de_alias(datos["alias"]),
                 "nro_cliente": datos["nro_cliente"],
                 "monto": datos["monto"],
                 "moneda": datos["moneda"],
