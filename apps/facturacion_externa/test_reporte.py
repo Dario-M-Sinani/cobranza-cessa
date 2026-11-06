@@ -69,10 +69,14 @@ def test_exportar_excel_con_pagador_del_aviso_de_sip(settings):
     assert respuesta.status_code == 200
     assert respuesta["Content-Disposition"].startswith('attachment; filename="cobros-qr-')
     ws = load_workbook(BytesIO(respuesta.content)).active
-    assert ws["A1"].value == "CESSA — Compañía Eléctrica Sucre S.A."
-    encabezado = [c.value for c in ws[4]]
-    fila = dict(zip(encabezado, [c.value for c in ws[5]]))
-    assert fila["Canal"] == "Web (cliente)"
+    assert ws["B1"].value == "CESSA — Compañía Eléctrica Sucre S.A."
+    assert ws["B2"].value == "Reporte de Cobros QR"
+    encabezado = [c.value for c in ws[5]]
+    assert encabezado == [n for n, _ in reporte.COLUMNAS]  # mismas columnas que el reporte de la web
+    fila = dict(zip(encabezado, [c.value for c in ws[6]]))
+    assert fila["Generado Por"] == "Web (cliente)"
+    resumen = {ws.cell(row=r, column=2).value: ws.cell(row=r, column=3).value for r in range(7, ws.max_row + 1)}
+    assert resumen["TOTAL COBRADO"] == 183.1
     assert fila["Periodo / Glosa"] == "CESSA 2 comp 100100 B183.10"
     assert fila["Pagador"] == "CLIENTE DE PRUEBA"
     assert fila["Documento Pagador"] == "1234567"
@@ -115,3 +119,20 @@ def test_panel_solo_consulta_bloquea_cobro_y_caja(settings):
     token = APIClient().post("/api/auth/token/", {"username": "sup", "password": "x"}, format="json").data["access"]
     carga = token.split(".")[1]
     assert '"solo_consulta":true' in base64.urlsafe_b64decode(carga + "=" * (-len(carga) % 4)).decode().replace(" ", "")
+
+
+@pytest.mark.django_db
+def test_detalle_del_panel_trae_glosa_pagador_y_generado_por():
+    s = _solicitud(alias="CESSA-BOT-20261106135911-TST3", detalle=[_item(10)], monto="23.10")
+    AvisoSip.objects.create(alias=s.alias, datos={"nombreCliente": "CLIENTE DE PRUEBA", "documentoCliente": "1234567"})
+    supervisor = Usuario.objects.create_user(username="sup", password="x", rol=Usuario.Rol.SUPERVISOR, activo=True)
+    cliente = APIClient()
+    cliente.force_authenticate(supervisor)
+
+    datos = cliente.get(f"/api/liquidaciones/{s.id}/").json()
+
+    assert datos["generado_por"] == "bot-telegram"
+    assert datos["glosa"] == "CESSA 1 comp 100100 B23.10"
+    assert datos["pagador"] == "CLIENTE DE PRUEBA"
+    assert datos["documento_pagador"] == "1234567"
+    assert datos["creado_en"].startswith("2026-11-06T13:59:11")

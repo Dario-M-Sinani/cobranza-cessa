@@ -50,6 +50,25 @@ class LiquidacionDetalleSerializer(LiquidacionSerializer):
         fields = LiquidacionSerializer.Meta.fields + ["detalle", "numero_orden_originante"]
         read_only_fields = fields
 
+    def to_representation(self, obj):
+        """Lo mismo que el reporte Excel (reporte.py): glosa, descripción, fecha de creación,
+        pagador y documento (del aviso de SIP) y quién lo generó."""
+        from . import reporte
+
+        datos = super().to_representation(obj)
+        fila = reporte.filas([obj])[0]
+        creado = reporte.creado_en(obj.alias)
+        datos.update({
+            "generado_por": reporte.GENERADO_POR.get(obj.origen, obj.origen),
+            "glosa": reporte.glosa(len(obj.detalle or []), obj.nro_cliente, obj.monto),
+            "descripcion": reporte.descripcion(obj),
+            "creado_en": creado.isoformat() if creado else None,
+            "pagador": fila.pagador,
+            "documento_pagador": fila.documento_pagador,
+            "numero_orden_originante": fila.nro_orden,
+        })
+        return datos
+
 
 def _inicio_del_dia(fecha):
     return timezone.make_aware(datetime.combine(fecha, time.min))
