@@ -17,7 +17,7 @@ def con_telegram(settings):
     settings.ALERTAS_TELEGRAM_BOT_TOKEN = "123:abc"
     settings.ALERTAS_TELEGRAM_CHAT_IDS = ["111", "222"]
     settings.ALERTAS_EMAIL_DESTINOS = []
-    settings.ALERTAS_INTENTOS_MINIMOS = 3
+    settings.ALERTAS_INTENTOS_MAXIMOS = 5
     settings.PANEL_URL = "https://10.1.1.88"
 
 
@@ -44,21 +44,32 @@ class TestCuandoAvisar:
         s.refresh_from_db()
         alertas.evaluar(s)
 
-        assert encolar.call_count == 1
+        assert encolar.call_count == 1  # solo el aviso final: no hay reintento que anunciar
         asunto, texto = encolar.call_args.args
-        assert "SIN FACTURA" in asunto
+        assert "NO SE PUDO FACTURAR" in asunto
         assert "115997" in texto and "Bs. 3.068,60" in texto and "BISA" in texto
         assert "N° 20253" in texto and "https://10.1.1.88/pagos-web" in texto
-        assert s.alertado_en is not None
+        assert s.alertado_en is not None and s.alerta_final_en is not None
 
-    def test_error_comun_espera_al_tercer_intento(self, con_telegram, encolar):
-        s = _solicitud(error="Error inesperado: timeout", intentos=2)
-        alertas.evaluar(s)
-        assert encolar.call_count == 0
-        s.intentos = 3
-        s.save()
+    def test_error_comun_avisa_al_primero_y_al_agotar_intentos(self, con_telegram, encolar):
+        s = _solicitud(error="Error inesperado: timeout", intentos=1)
         alertas.evaluar(s)
         assert encolar.call_count == 1
+        assert "se reintenta" in encolar.call_args.args[0]
+        assert "Motivo: Error inesperado: timeout" in encolar.call_args.args[1]
+        for intentos in (2, 3, 4):  # los intermedios no avisan
+            s.refresh_from_db()
+            s.intentos = intentos
+            s.save()
+            alertas.evaluar(s)
+        assert encolar.call_count == 1
+        s.refresh_from_db()
+        s.intentos = 5
+        s.save()
+        alertas.evaluar(s)
+        alertas.evaluar(s)
+        assert encolar.call_count == 2
+        assert "NO SE PUDO FACTURAR" in encolar.call_args.args[0]
 
     def test_caja_fuera_de_horario_no_avisa(self, con_telegram, encolar):
         alertas.evaluar(_solicitud(error="aperturar caja: El operador no puede aperturar caja fuera de horario", intentos=9))

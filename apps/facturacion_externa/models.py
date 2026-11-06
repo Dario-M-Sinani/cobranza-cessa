@@ -71,6 +71,8 @@ class SolicitudLiquidacion(models.Model):
     procesado_en = models.DateTimeField(null=True, blank=True)
     # Cuándo se avisó al equipo que este pago quedó sin factura (ver alertas.py); una sola vez.
     alertado_en = models.DateTimeField(null=True, blank=True)
+    # Cuándo se avisó que ya NO se va a facturar solo (rechazo definitivo o intentos agotados).
+    alerta_final_en = models.DateTimeField(null=True, blank=True)
     # Por qué se descartó (estado DESCARTADO); quién y cuándo queda en la auditoría.
     nota_descarte = models.CharField(max_length=255, blank=True, default="")
 

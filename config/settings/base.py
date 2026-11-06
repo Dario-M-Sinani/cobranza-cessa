@@ -252,8 +252,9 @@ ALERTAS_TELEGRAM_CHAT_IDS = env.list("ALERTAS_TELEGRAM_CHAT_IDS", default=[])
 ALERTAS_EMAIL_DESTINOS = env.list("ALERTAS_EMAIL_DESTINOS", default=[])
 # Prefijo del asunto de los correos de alerta: "[Notificaciones Web CESSA] ...".
 ALERTAS_EMAIL_PREFIJO = env("ALERTAS_EMAIL_PREFIJO", default="Notificaciones Web CESSA")
-# Errores que no son definitivos ni de caja: se avisa recién a partir de este intento fallido.
-ALERTAS_INTENTOS_MINIMOS = env.int("ALERTAS_INTENTOS_MINIMOS", default=3)
+# Intentos de facturación tras los que ya no se reintenta solo (mismo tope que la web y el bot):
+# se manda el aviso final "no se pudo facturar" (alertas.py).
+ALERTAS_INTENTOS_MAXIMOS = env.int("ALERTAS_INTENTOS_MAXIMOS", default=5)
 # Para el enlace "Ver: .../pagos-web" de las alertas (ej. https://10.1.1.88).
 PANEL_URL = env("PANEL_URL", default="")
 

@@ -1,9 +1,12 @@
 """Cuándo avisar al equipo de un pago web sin factura (el cliente pagó, la liquidación falló).
 
-- Rechazo definitivo (no se arregla reintentando): alerta inmediata.
-- Otro error: alerta recién al llegar a ALERTAS_INTENTOS_MINIMOS intentos fallidos.
+Dos avisos como máximo por pago (decisión 2026-11-06):
+- Primer error: "no se pudo facturar, se reintenta" con el motivo (`alertado_en`).
+- Sin más reintentos automáticos -- rechazo definitivo o ALERTAS_INTENTOS_MAXIMOS intentos (el
+  mismo tope que la web y el bot) --: "NO SE PUDO FACTURAR" con el motivo, para revisión a mano
+  (`alerta_final_en`). Un rechazo definitivo en el primer intento manda solo este.
 - Caja del SIIC fuera de horario o cerrada: sin alerta (se resuelve sola con la caja del día).
-- Una vez por liquidación (`alertado_en`); si después se factura, aviso de "resuelto".
+- Si después se factura, aviso de "resuelto".
 - Resumen diario (tarea programada) de las que siguen con error.
 Los mensajes se mandan en segundo plano (tarea Celery), nunca demoran el pago.
 """
@@ -61,24 +64,23 @@ def evaluar(solicitud: SolicitudLiquidacion) -> None:
     if not hay_canal_configurado():
         return
 
+    pago = SolicitudLiquidacion.objects.filter(pk=solicitud.pk)
     if solicitud.estado == SolicitudLiquidacion.Estado.FACTURADO:
-        if solicitud.alertado_en:
+        if solicitud.alertado_en or solicitud.alerta_final_en:
             enviar_alerta.delay("Pago web resuelto: ya tiene factura", describir(solicitud) + _enlace())
-            SolicitudLiquidacion.objects.filter(pk=solicitud.pk).update(alertado_en=None)
+            pago.update(alertado_en=None, alerta_final_en=None)
         return
 
-    if solicitud.estado != SolicitudLiquidacion.Estado.ERROR or solicitud.alertado_en or es_de_caja(solicitud.error):
+    if solicitud.estado != SolicitudLiquidacion.Estado.ERROR or es_de_caja(solicitud.error):
         return
-    definitivo = es_definitivo(solicitud.error)
-    if not definitivo and solicitud.intentos < settings.ALERTAS_INTENTOS_MINIMOS:
-        return
-
-    asunto = "Pago web SIN FACTURA: revisar a mano" if definitivo else "Pago web sin factura: sigue fallando"
     cuerpo = f"{describir(solicitud)}\nMotivo: {solicitud.error[:700]}{_enlace()}"
-    # Se marca antes de encolar: así dos procesos que terminan casi juntos no avisan dos veces.
-    marcadas = SolicitudLiquidacion.objects.filter(pk=solicitud.pk, alertado_en__isnull=True).update(alertado_en=timezone.now())
-    if marcadas:
-        enviar_alerta.delay(asunto, cuerpo)
+    ahora = timezone.now()
+    # Se marca antes de encolar (update condicional): dos procesos casi juntos no avisan dos veces.
+    if es_definitivo(solicitud.error) or solicitud.intentos >= settings.ALERTAS_INTENTOS_MAXIMOS:
+        if pago.filter(alerta_final_en__isnull=True).update(alerta_final_en=ahora, alertado_en=solicitud.alertado_en or ahora):
+            enviar_alerta.delay("Pago web NO SE PUDO FACTURAR: revisar a mano", cuerpo)
+    elif pago.filter(alertado_en__isnull=True).update(alertado_en=ahora):
+        enviar_alerta.delay("Pago web sin factura: se reintenta", cuerpo)
 
 
 def resumen_de_errores() -> tuple[str, str] | None:
