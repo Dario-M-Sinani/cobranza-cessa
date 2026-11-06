@@ -144,3 +144,36 @@ class TestResumenYEnvio:
         settings.ALERTAS_EMAIL_DESTINOS = ["cobranzas@cessa.com.bo"]
         assert servicio.notificar("Pago web sin factura", "detalle") == 1
         assert mailoutbox[0].subject == "[Notificaciones Web CESSA] Pago web sin factura"
+
+
+@pytest.mark.django_db
+class TestReintentoNocturno:
+    def test_reintenta_los_que_siguen_en_error_y_no_los_descartados(self, monkeypatch):
+        from . import services as facturacion_services
+        from . import tasks
+
+        reintentados = []
+
+        def liquidar_falso(solicitud):
+            reintentados.append(solicitud.alias)
+            solicitud.estado = SolicitudLiquidacion.Estado.FACTURADO
+            solicitud.save(update_fields=["estado"])
+            return solicitud
+
+        monkeypatch.setattr(facturacion_services, "liquidar_solicitud", liquidar_falso)
+        en_error = _solicitud(alias="CESSA-BOT-1", error="La deuda cambió desde que se generó el QR", intentos=5)
+        descartado = _solicitud(alias="CESSA-WEB-2", estado=SolicitudLiquidacion.Estado.DESCARTADO, intentos=5)
+        facturado = _solicitud(alias="CESSA-WEB-3", estado=SolicitudLiquidacion.Estado.FACTURADO, intentos=0)
+
+        assert tasks.reintento_nocturno() == 1
+
+        en_error.refresh_from_db(); descartado.refresh_from_db(); facturado.refresh_from_db()
+        assert en_error.estado == SolicitudLiquidacion.Estado.FACTURADO
+        assert descartado.estado == SolicitudLiquidacion.Estado.DESCARTADO
+        assert facturado.intentos == 0
+        assert reintentados == ["CESSA-BOT-1"]
+
+    def test_esta_programado_a_las_2(self, settings):
+        tarea = settings.CELERY_BEAT_SCHEDULE["reintento-nocturno-pagos-con-error"]
+        assert tarea["task"].endswith("reintento_nocturno")
+        assert tarea["schedule"].hour == {2} and tarea["schedule"].minute == {0}

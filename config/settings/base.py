@@ -274,6 +274,13 @@ CELERY_BEAT_SCHEDULE["resumen-diario-pagos-web-con-error"] = {
     "schedule": crontab(hour=8, minute=0),
 }
 
+# Un intento más, de madrugada, de los pagos que siguen en error (tasks.reintento_nocturno).
+REINTENTO_NOCTURNO_HORA = env.int("REINTENTO_NOCTURNO_HORA", default=2)
+CELERY_BEAT_SCHEDULE["reintento-nocturno-pagos-con-error"] = {
+    "task": "apps.facturacion_externa.tasks.reintento_nocturno",
+    "schedule": crontab(hour=REINTENTO_NOCTURNO_HORA, minute=0),
+}
+
 CELERY_BEAT_SCHEDULE["conciliacion-diaria-pagos"] = {
     "task": "apps.facturacion_externa.tasks.conciliacion_diaria",
     "schedule": crontab(hour=7, minute=30),
