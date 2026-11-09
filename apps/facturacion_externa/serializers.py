@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import SolicitudLiquidacion
+from .models import QrGenerado, SolicitudLiquidacion
 
 
 class ItemDeudaEntradaSerializer(serializers.Serializer):
@@ -61,3 +61,18 @@ class SolicitudLiquidacionSalidaSerializer(serializers.ModelSerializer):
         datos = super().to_representation(instance)
         datos["estado"] = datos["estado"].upper()
         return datos
+
+
+class QrGeneradoEntradaSerializer(serializers.Serializer):
+    """Aviso de un QR generado (o de su cambio de estado) desde la web o el bot. En un aviso
+    posterior del mismo alias solo hace falta `alias` y `estado` (ej. "anulado")."""
+
+    alias = serializers.CharField(max_length=100)
+    nro_cliente = serializers.CharField(max_length=20, required=False)
+    monto = serializers.DecimalField(max_digits=12, decimal_places=2, required=False)
+    banco = serializers.CharField(max_length=30, allow_blank=True, required=False)
+    detalle = serializers.ListField(child=serializers.DictField(), required=False)
+    estado = serializers.ChoiceField(choices=QrGenerado.Estado.values, required=False)
+    observacion = serializers.CharField(max_length=255, allow_blank=True, required=False)
+    creado_en = serializers.DateTimeField(required=False)
+    vence_en = serializers.DateTimeField(required=False, allow_null=True)

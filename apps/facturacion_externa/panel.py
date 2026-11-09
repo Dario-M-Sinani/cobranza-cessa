@@ -9,7 +9,7 @@ from datetime import datetime, time, timedelta
 from decimal import Decimal
 
 from django.db import connection
-from django.db.models import Count, Sum
+from django.db.models import Count, Exists, OuterRef, Q, Sum
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import mixins, serializers, status, viewsets
@@ -21,22 +21,29 @@ from apps.auditoria.models import LogAuditoria
 from apps.usuarios.permissions import EsSupervisorOAdmin
 from services.cobranzas_banco_client import CobranzasBancoError, get_cobranzas_banco_client
 
-from .models import SolicitudLiquidacion
+from .models import QrGenerado, SolicitudLiquidacion
 from .services import liquidar_solicitud
+
+# Estados de la lista que no son de una liquidación sino de un QR que no se pagó (QrGenerado).
+ESTADOS_QR = ("expirado", "anulado", "vigente")
 
 
 class LiquidacionSerializer(serializers.ModelSerializer):
+    tipo = serializers.SerializerMethodField()
     tiene_pdf = serializers.SerializerMethodField()
     cantidad_comprobantes = serializers.SerializerMethodField()
 
     class Meta:
         model = SolicitudLiquidacion
         fields = [
-            "id", "alias", "origen", "nro_cliente", "monto", "moneda", "banco", "estado", "intentos", "error",
+            "id", "tipo", "alias", "origen", "nro_cliente", "monto", "moneda", "banco", "estado", "intentos", "error",
             "cobranzas_uuid", "fecha_pago", "recibido_en", "procesado_en", "tiene_pdf", "cantidad_comprobantes",
             "nota_descarte",
         ]
         read_only_fields = fields
+
+    def get_tipo(self, obj):
+        return "pago"
 
     def get_tiene_pdf(self, obj):
         return obj.comprobante_pdf is not None
@@ -70,8 +77,80 @@ class LiquidacionDetalleSerializer(LiquidacionSerializer):
         return datos
 
 
+class QrSinPagarSerializer(serializers.ModelSerializer):
+    """Un QR que no se pagó, con la misma forma que una liquidación en la lista (tipo "qr") y el
+    detalle ya incluido: no tiene reintento, PDF ni transacción en api-cobranzas."""
+
+    tipo = serializers.SerializerMethodField()
+    estado = serializers.SerializerMethodField()
+    cantidad_comprobantes = serializers.SerializerMethodField()
+    recibido_en = serializers.DateTimeField(source="creado_en")
+
+    class Meta:
+        model = QrGenerado
+        fields = [
+            "id", "tipo", "alias", "origen", "nro_cliente", "monto", "banco", "estado", "observacion",
+            "recibido_en", "creado_en", "vence_en", "cantidad_comprobantes", "detalle",
+        ]
+        read_only_fields = fields
+
+    def get_tipo(self, obj):
+        return "qr"
+
+    def get_estado(self, obj):
+        return obj.estado_actual()
+
+    def get_cantidad_comprobantes(self, obj):
+        return len(obj.detalle or [])
+
+    def to_representation(self, obj):
+        from . import reporte
+
+        datos = super().to_representation(obj)
+        datos.update({
+            "moneda": "BOB", "intentos": 0, "error": "", "nota_descarte": "", "cobranzas_uuid": "",
+            "fecha_pago": None, "procesado_en": None, "tiene_pdf": False,
+            "generado_por": reporte.GENERADO_POR.get(obj.origen, obj.origen),
+            "glosa": reporte.glosa(len(obj.detalle or []), obj.nro_cliente, obj.monto),
+            "descripcion": reporte.descripcion(obj),
+        })
+        return datos
+
+
 def _inicio_del_dia(fecha):
     return timezone.make_aware(datetime.combine(fecha, time.min))
+
+
+def qr_sin_pagar(params, ahora=None):
+    """QR generados que no tienen liquidación (no se pagaron), con los filtros de la lista.
+    `estado` vacío = todos; "expirado" incluye los vigentes que ya pasaron su vencimiento."""
+    ahora = ahora or timezone.now()
+    pagados = SolicitudLiquidacion.objects.filter(alias=OuterRef("alias"))
+    qs = QrGenerado.objects.annotate(pagado=Exists(pagados)).filter(pagado=False).order_by("-creado_en")
+    vencido = Q(estado=QrGenerado.Estado.VIGENTE, vence_en__lte=ahora)
+    estado = params.get("estado")
+    if estado == "expirado":
+        qs = qs.filter(Q(estado=QrGenerado.Estado.EXPIRADO) | vencido)
+    elif estado == "vigente":
+        qs = qs.filter(estado=QrGenerado.Estado.VIGENTE).exclude(vencido)
+    elif estado == "anulado":
+        qs = qs.filter(estado=QrGenerado.Estado.ANULADO)
+    if params.get("cliente"):
+        qs = qs.filter(nro_cliente=params["cliente"].strip())
+    if params.get("banco"):
+        qs = qs.filter(banco=params["banco"])
+    if params.get("origen") in SolicitudLiquidacion.Origen.values:
+        qs = qs.filter(origen=params["origen"])
+    for campo, filtro in (("desde", "creado_en__gte"), ("hasta", "creado_en__lt")):
+        if params.get(campo):
+            try:
+                fecha = datetime.strptime(params[campo], "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            if campo == "hasta":
+                fecha += timedelta(days=1)
+            qs = qs.filter(**{filtro: _inicio_del_dia(fecha)})
+    return qs
 
 
 class LiquidacionViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
@@ -88,6 +167,8 @@ class LiquidacionViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, views
     def get_queryset(self):
         qs = SolicitudLiquidacion.objects.defer("comprobante_pdf").order_by("-recibido_en")
         p = self.request.query_params
+        if self.action != "retrieve" and p.get("estado") in ESTADOS_QR:
+            return qs.none()  # pidieron solo QR sin pagar
         if p.get("estado") in SolicitudLiquidacion.Estado.values:
             qs = qs.filter(estado=p["estado"])
         if p.get("cliente"):
@@ -107,17 +188,28 @@ class LiquidacionViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, views
                 qs = qs.filter(**{filtro: _inicio_del_dia(fecha)})
         return qs
 
+    def _qr_sin_pagar(self):
+        """Los QR sin pagar entran en "Todos" y en sus propias pestañas, no en las de liquidación."""
+        estado = self.request.query_params.get("estado") or ""
+        if estado and estado not in ESTADOS_QR:
+            return QrGenerado.objects.none()
+        return qr_sin_pagar(self.request.query_params)
+
     def list(self, request, *args, **kwargs):
-        return Response(LiquidacionSerializer(self.get_queryset()[: self.LIMITE], many=True).data)
+        filas = LiquidacionSerializer(self.get_queryset()[: self.LIMITE], many=True).data
+        filas += QrSinPagarSerializer(self._qr_sin_pagar()[: self.LIMITE], many=True).data
+        filas.sort(key=lambda f: f["recibido_en"] or "", reverse=True)
+        return Response(filas[: self.LIMITE])
 
     @action(detail=False, methods=["get"])
     def exportar(self, request):
         """Excel del reporte de cobros (reporte.py) con los mismos filtros que la lista, hasta
-        LIMITE_EXPORTAR filas (la lista muestra 300)."""
+        LIMITE_EXPORTAR filas (la lista muestra 300). Incluye los QR expirados/anulados."""
         from . import reporte
 
         solicitudes = self.get_queryset()[: self.LIMITE_EXPORTAR]
-        contenido = reporte.excel(solicitudes, generado_por=request.user.get_username())
+        qrs = self._qr_sin_pagar()[: self.LIMITE_EXPORTAR]
+        contenido = reporte.excel(solicitudes, generado_por=request.user.get_username(), qrs=qrs)
         nombre = f"cobros-qr-{timezone.localtime():%Y-%m-%d-%H%M%S}.xlsx"
         respuesta = HttpResponse(
             contenido, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -133,11 +225,17 @@ class LiquidacionViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, views
             fila["estado"]: {"cantidad": fila["cantidad"], "monto": f"{Decimal(fila['monto'] or 0):.2f}"}
             for fila in hoy.values("estado").annotate(cantidad=Count("id"), monto=Sum("monto"))
         }
+        desde = timezone.localdate().isoformat()
+        qr_hoy = {}
+        for estado in ESTADOS_QR:
+            totales = qr_sin_pagar({"estado": estado, "desde": desde}).aggregate(cantidad=Count("id"), monto=Sum("monto"))
+            qr_hoy[estado] = {"cantidad": totales["cantidad"], "monto": f"{Decimal(totales['monto'] or 0):.2f}"}
         return Response({
             "hoy": {
                 estado: por_estado.get(estado, {"cantidad": 0, "monto": "0.00"})
                 for estado in SolicitudLiquidacion.Estado.values
             },
+            "qr_hoy": qr_hoy,
             "errores_abiertos": SolicitudLiquidacion.objects.filter(estado=SolicitudLiquidacion.Estado.ERROR).count(),
         })
 

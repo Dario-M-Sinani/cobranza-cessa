@@ -1,4 +1,7 @@
+from datetime import datetime, time, timedelta
+
 from django.http import HttpResponse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -11,9 +14,13 @@ from services.deuda_client import (
     pagos_cliente_siic,
 )
 
-from .models import AvisoSip, SolicitudLiquidacion
+from .models import AvisoSip, QrGenerado, SolicitudLiquidacion
 from .permissions import TieneApiKeyServicioExterno
-from .serializers import SolicitudLiquidacionEntradaSerializer, SolicitudLiquidacionSalidaSerializer
+from .serializers import (
+    QrGeneradoEntradaSerializer,
+    SolicitudLiquidacionEntradaSerializer,
+    SolicitudLiquidacionSalidaSerializer,
+)
 from .services import liquidar_solicitud
 
 
@@ -195,3 +202,35 @@ class ComprobantePdfExternaView(APIView):
         if pdf is None:
             return Response({"error": "El SIIC no generó el PDF de ese comprobante."}, status=status.HTTP_404_NOT_FOUND)
         return HttpResponse(pdf, content_type="application/pdf")
+
+
+class QrGeneradoExternoView(APIView):
+    """La web y el bot avisan acá cada QR que generan, y después si se anuló o venció, para que
+    "Pagos web" y el reporte muestren también los QR sin pagar. Idempotente por alias: el mismo
+    aviso dos veces no duplica nada; un aviso posterior actualiza solo los campos que trae."""
+
+    authentication_classes = []
+    permission_classes = [TieneApiKeyServicioExterno]
+
+    def post(self, request):
+        entrada = QrGeneradoEntradaSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        datos = dict(entrada.validated_data)
+        alias = datos.pop("alias")
+
+        qr = QrGenerado.objects.filter(alias=alias).first()
+        if qr is None:
+            faltan = [campo for campo in ("nro_cliente", "monto") if campo not in datos]
+            if faltan:
+                return Response({campo: ["Requerido en el primer aviso del QR."] for campo in faltan},
+                                status=status.HTTP_400_BAD_REQUEST)
+            qr = QrGenerado(alias=alias, origen=SolicitudLiquidacion.origen_de_alias(alias))
+            datos.setdefault("creado_en", timezone.now())
+        for campo, valor in datos.items():
+            setattr(qr, campo, valor)
+        if qr.vence_en is None:
+            # Sin vencimiento explícito: el QR de SIP vale hasta el fin del día en que se generó.
+            dia = timezone.localtime(qr.creado_en).date()
+            qr.vence_en = timezone.make_aware(datetime.combine(dia + timedelta(days=1), time.min))
+        qr.save()
+        return Response({"alias": qr.alias, "estado": qr.estado_actual()}, status=status.HTTP_200_OK)

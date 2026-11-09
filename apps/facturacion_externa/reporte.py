@@ -9,8 +9,8 @@ ya tiene, sin pedirle nada a cessa-laravel ni al bot:
   UTC, CESSA-BOT- con la hora de Bolivia);
 - pagador, documento y N° de orden: del último aviso de SIP (`AvisoSip`) de ese alias.
 
-A diferencia del reporte de la web, acá solo están los QR pagados (los que se piden liquidar):
-los vencidos o cancelados sin pagar no llegan al gateway.
+Los QR que no se pagaron (expirados, anulados o todavía vigentes) salen de `QrGenerado`, que la
+web y el bot avisan al generarlos, igual que en el reporte de la web.
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from zoneinfo import ZoneInfo
 
 from django.utils import timezone
 
-from .models import AvisoSip, SolicitudLiquidacion
+from .models import AvisoSip, QrGenerado, SolicitudLiquidacion
 
 BOLIVIA = ZoneInfo("America/La_Paz")
 LOGO = Path(__file__).parent / "recursos" / "logo-cessa.png"
@@ -132,6 +132,51 @@ class Fila:
         ]
 
 
+    @property
+    def creado(self) -> datetime | None:
+        return creado_en(self.solicitud.alias)
+
+    @property
+    def monto(self) -> Decimal:
+        return self.solicitud.monto
+
+
+@dataclass
+class FilaQr:
+    """Un QR que no se pagó: sin pago, pagador ni N° de orden."""
+
+    qr: QrGenerado
+
+    @property
+    def creado(self) -> datetime | None:
+        return self.qr.creado_en
+
+    @property
+    def monto(self) -> Decimal:
+        return self.qr.monto
+
+    def valores(self) -> list:
+        q = self.qr
+        hora = lambda d: d.astimezone(BOLIVIA).replace(tzinfo=None) if d else None  # noqa: E731
+        estado = QrGenerado.Estado(q.estado_actual())
+        return [
+            q.nro_cliente,
+            q.alias,
+            float(q.monto),
+            estado.label,
+            glosa(len(q.detalle or []), q.nro_cliente, q.monto),
+            descripcion(q),
+            BANCOS.get(q.banco, q.banco or ""),
+            hora(q.creado_en),
+            None,
+            "",
+            "",
+            "",
+            q.observacion or ("Anulado" if estado == QrGenerado.Estado.ANULADO else ""),
+            GENERADO_POR.get(q.origen, q.origen),
+        ]
+
+
 def avisos_por_alias(aliases) -> dict[str, dict]:
     avisos: dict[str, dict] = {}
     for aviso in AvisoSip.objects.filter(alias__in=list(aliases)).order_by("recibido_en"):
@@ -149,19 +194,24 @@ def _bs(valor: Decimal) -> str:
     return f"Bs {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def excel(solicitudes, generado_por: str) -> bytes:
+def excel(solicitudes, generado_por: str, qrs=()) -> bytes:
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
 
-    lista = filas(solicitudes)
+    pagos = filas(solicitudes)
+    sin_pagar = [FilaQr(q) for q in qrs]
+    # Pagados y no pagados juntos, del QR más nuevo al más viejo (como el reporte de la web).
+    minimo = datetime.min.replace(tzinfo=tz.utc)
+    lista = sorted(pagos + sin_pagar, key=lambda f: f.creado or minimo, reverse=True)
     E = SolicitudLiquidacion.Estado
     grupos = {
-        "facturado": [f for f in lista if f.solicitud.estado == E.FACTURADO],
-        "error": [f for f in lista if f.solicitud.estado == E.ERROR],
-        "otros": [f for f in lista if f.solicitud.estado not in (E.FACTURADO, E.ERROR)],
+        "facturado": [f for f in pagos if f.solicitud.estado == E.FACTURADO],
+        "error": [f for f in pagos if f.solicitud.estado == E.ERROR],
+        "otros": [f for f in pagos if f.solicitud.estado not in (E.FACTURADO, E.ERROR)],
+        "no_cobrado": sin_pagar,
     }
-    suma = lambda fs: sum((f.solicitud.monto for f in fs), Decimal(0))  # noqa: E731
+    suma = lambda fs: sum((f.monto for f in fs), Decimal(0))  # noqa: E731
 
     azul, celeste, gris = "1F3A68", "DCE6F1", "BFBFBF"
     fino = Side(style="thin", color=gris)
@@ -253,7 +303,8 @@ def excel(solicitudes, generado_por: str) -> bytes:
     renglon(r + 2, "Pagado, con error al facturar (revisar)", grupos["error"], total=True)
     renglon(r + 3, "TOTAL COBRADO", cobrado, total=True)
     renglon(r + 5, "Pendiente de facturar o descartado", grupos["otros"])
-    renglon(r + 6, "Total general (todo lo listado)", lista)
+    renglon(r + 6, "No cobrado (pendiente, expirado, anulado)", grupos["no_cobrado"])
+    renglon(r + 7, "Total general (todo lo listado)", lista)
 
     ws.page_setup.orientation = "landscape"
     ws.page_setup.fitToWidth, ws.page_setup.fitToHeight = 1, 0

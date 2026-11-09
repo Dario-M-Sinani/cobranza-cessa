@@ -1,5 +1,6 @@
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
+from django.utils import timezone
 
 
 class SolicitudLiquidacion(models.Model):
@@ -98,3 +99,43 @@ class AvisoSip(models.Model):
 
     def __str__(self):
         return f"AvisoSip#{self.pk} {self.alias}"
+
+
+class QrGenerado(models.Model):
+    """Cada QR de cobro que generan la web (cessa-laravel) y el bot, avisado al generarlo
+    (`POST /api/externo/qr-generados/`). Sirve para ver en "Pagos web" y en el reporte los QR que
+    vencieron o se anularon sin pagar, como el reporte de cobros de la web. Los pagados se ven
+    por su `SolicitudLiquidacion` (mismo alias), no por acá."""
+
+    class Estado(models.TextChoices):
+        VIGENTE = "vigente", "Pendiente de pago"
+        EXPIRADO = "expirado", "Expirado"
+        ANULADO = "anulado", "Anulado"
+
+    alias = models.CharField(max_length=100, unique=True)
+    origen = models.CharField(
+        max_length=30, choices=SolicitudLiquidacion.Origen.choices, default=SolicitudLiquidacion.Origen.CESSA_LARAVEL_WEB
+    )
+    nro_cliente = models.CharField(max_length=20, db_index=True)
+    monto = models.DecimalField(max_digits=12, decimal_places=2)
+    banco = models.CharField(max_length=30, blank=True, default="")
+    # Comprobantes del QR (misma forma que el `detalle` de liquidar): glosa, descripción y períodos.
+    detalle = models.JSONField(encoder=DjangoJSONEncoder, default=list, blank=True)
+    # Lo que avisó quien lo generó; "vigente" pasado `vence_en` se muestra como expirado.
+    estado = models.CharField(max_length=20, choices=Estado.choices, default=Estado.VIGENTE)
+    observacion = models.CharField(max_length=255, blank=True, default="")
+    creado_en = models.DateTimeField(db_index=True)
+    vence_en = models.DateTimeField(null=True, blank=True)
+    recibido_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-creado_en"]
+
+    def estado_actual(self, ahora=None) -> str:
+        if self.estado == self.Estado.VIGENTE and self.vence_en and self.vence_en <= (ahora or timezone.now()):
+            return self.Estado.EXPIRADO
+        return self.estado
+
+    def __str__(self):
+        return f"QrGenerado#{self.pk} [{self.estado}] {self.alias}"
