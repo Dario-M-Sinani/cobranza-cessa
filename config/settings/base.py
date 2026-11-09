@@ -166,6 +166,8 @@ COBRANZAS_BANCO_CLIENT_SECRET = env("COBRANZAS_BANCO_CLIENT_SECRET", default="")
 COBRANZAS_BANCO_USERNAME = env("COBRANZAS_BANCO_USERNAME", default="")
 COBRANZAS_BANCO_PASSWORD = env("COBRANZAS_BANCO_PASSWORD", default="")
 COBRANZAS_BANCO_AGENCIA_SIGLA = env("COBRANZAS_BANCO_AGENCIA_SIGLA", default="")
+# Número de caja (dispositivo) con el que se apertura cada día, ej. 8199. Vacío: lo asigna el SIIC.
+COBRANZAS_BANCO_CAJA_CODIGO = env("COBRANZAS_BANCO_CAJA_CODIGO", default="")
 # TLS hacia api-cobranzas-bancos: "true" (por defecto) o la ruta a un .pem con el certificado de
 # la .102 (su IP directa, ej. https://10.1.1.102:6002, no tiene un certificado verificable por la
 # cadena pública). Nunca "false" en producción.

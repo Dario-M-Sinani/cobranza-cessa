@@ -164,6 +164,7 @@ class LumenCobranzasBancoClient(CobranzasBancoClientInterface):
         username: str | None = None,
         password: str | None = None,
         agencia_sigla: str | None = None,
+        caja_codigo: str | int | None = None,
         timeout: int = 30,
     ):
         self.base_url = base_url or settings.COBRANZAS_BANCO_BASE_URL
@@ -172,6 +173,7 @@ class LumenCobranzasBancoClient(CobranzasBancoClientInterface):
         self.username = username or settings.COBRANZAS_BANCO_USERNAME
         self.password = password or settings.COBRANZAS_BANCO_PASSWORD
         self.agencia_sigla = agencia_sigla or settings.COBRANZAS_BANCO_AGENCIA_SIGLA
+        self.caja_codigo = str(caja_codigo or settings.COBRANZAS_BANCO_CAJA_CODIGO or "").strip()
         self.timeout = timeout
         # TLS de api-cobranzas-bancos: True, o la ruta a un .pem para confiar en el certificado de
         # la .102 cuando se usa su IP directa (ver COBRANZAS_BANCO_VERIFY).
@@ -186,15 +188,15 @@ class LumenCobranzasBancoClient(CobranzasBancoClientInterface):
                 f"verificar caja: HTTP {response.status_code}: {response.text}"
             )
 
-        response = self._request_autenticado(
-            "post",
-            "/v1/cajas/aperturar",
-            json={
-                "agencia_sigla": self.agencia_sigla,
-                "monto_inicial": 0,
-                "descripcion_apertura": "Apertura automática -- panel de cobranza CESSA (liquidación de cobros)",
-            },
-        )
+        cuerpo = {
+            "agencia_sigla": self.agencia_sigla,
+            "monto_inicial": 0,
+            "descripcion_apertura": "Apertura automática -- panel de cobranza CESSA (liquidación de cobros)",
+        }
+        if self.caja_codigo:
+            # Sin esto el SIIC asigna el número de caja (salía 8198).
+            cuerpo["caja_codigo"] = int(self.caja_codigo)
+        response = self._request_autenticado("post", "/v1/cajas/aperturar", json=cuerpo)
         if not response.ok:
             raise CobranzasBancoRequestError(f"aperturar caja: {self._extraer_error(response)}")
 

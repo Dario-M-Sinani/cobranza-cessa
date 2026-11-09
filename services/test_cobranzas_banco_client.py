@@ -121,6 +121,21 @@ class TestFlujoDeCobro:
         segunda_llamada = mock_request.call_args_list[1]
         assert segunda_llamada.args == ("post", "https://cobranzas.example/v1/cajas/aperturar")
         assert segunda_llamada.kwargs["json"]["agencia_sigla"] == "SUC01"
+        assert "caja_codigo" not in segunda_llamada.kwargs["json"]  # sin configurar: lo asigna el SIIC
+
+    def test_apertura_con_numero_de_caja_fijo(self):
+        cliente = LumenCobranzasBancoClient(
+            base_url="https://cobranzas.example", client_id="cid", client_secret="secret",
+            username="user", password="pass", agencia_sigla="WEB", caja_codigo="8199",
+        )
+        with patch("services.cobranzas_banco_client.requests.post") as mock_post, \
+                patch("services.cobranzas_banco_client.requests.request") as mock_request:
+            mock_post.return_value = _response({"access_token": "tok"})
+            mock_request.side_effect = [_response({}, status_code=404, ok=False), _response({}, status_code=200)]
+
+            cliente.asegurar_caja_abierta()
+
+        assert mock_request.call_args_list[1].kwargs["json"]["caja_codigo"] == 8199
 
     def test_pagar_transaccion_usa_pagar_otro_documento(self):
         cliente = _cliente()
