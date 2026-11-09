@@ -179,7 +179,15 @@ class Command(BaseCommand):
 
         try:
             r = cliente._request_autenticado("get", "/v1/cajas/existe")
-            self._r(OK, f"Caja del día: HTTP {r.status_code} (404 = todavía no se abrió hoy; se abre sola con el primer pago)")
+            caja = r.json() if r.ok else {}
+            estado = str(caja.get("estado") or "").upper() if isinstance(caja, dict) else ""
+            if estado and estado != "ABIERTA":
+                # Cerrada a mitad del día: api-cobranzas no deja abrir otra hasta mañana.
+                self._r(ERROR, f"Caja del día {caja.get('dispositivo_id')} {estado} desde {caja.get('fecha_cierre')}: "
+                               "no se puede facturar hasta que DTIC la reabra")
+            else:
+                self._r(OK, f"Caja del día: HTTP {r.status_code} {('caja ' + str(caja.get('dispositivo_id')) + ' ' + estado) if estado else ''}"
+                            " (404 = todavía no se abrió hoy; se abre sola con el primer pago)")
         except (CobranzasBancoError, requests.RequestException) as exc:
             self._r(AVISO, f"/v1/cajas/existe: {exc}")
 

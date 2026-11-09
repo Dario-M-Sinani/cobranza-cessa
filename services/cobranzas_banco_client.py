@@ -182,6 +182,20 @@ class LumenCobranzasBancoClient(CobranzasBancoClientInterface):
     def asegurar_caja_abierta(self) -> None:
         response = self._request_autenticado("get", "/v1/cajas/existe")
         if response.ok:
+            # /existe responde 200 con la caja del día aunque esté CERRADA, y api-cobranzas no deja
+            # abrir otra ese día. Antes se tomaba como abierta y el pago fallaba en el SIIC con "no
+            # tiene una caja aperturada", que no dice la causa (09/11/2026: se cerró a las 12:43).
+            try:
+                caja = response.json() or {}
+            except ValueError:
+                caja = {}
+            estado = str(caja.get("estado") or "").upper() if isinstance(caja, dict) else ""
+            if estado and estado != "ABIERTA":
+                raise CobranzasBancoRequestError(
+                    f"La caja de hoy del cajero {caja.get('codigo_cajero') or '?'} (caja {caja.get('dispositivo_id') or '?'}) "
+                    f"está {estado} desde {caja.get('fecha_cierre') or '?'}: api-cobranzas no deja abrir otra el mismo "
+                    "día. Pedir a DTIC que la reabra; mañana se abre una nueva sola."
+                )
             return
         if response.status_code != 404:
             raise CobranzasBancoRequestError(

@@ -106,6 +106,31 @@ class TestFlujoDeCobro:
             headers={"Authorization": "Bearer tok"}, timeout=30, verify=True,
         )
 
+    def test_caja_del_dia_cerrada_da_error_claro(self):
+        cliente = _cliente()
+        cerrada = {"id": 16899, "estado": "CERRADA", "fecha_cierre": "2026-11-09 12:43:44",
+                   "codigo_cajero": "QRWEB", "dispositivo_id": "8198"}
+        with patch("services.cobranzas_banco_client.requests.post") as mock_post, \
+                patch("services.cobranzas_banco_client.requests.request") as mock_request:
+            mock_post.return_value = _response({"access_token": "tok"})
+            mock_request.return_value = _response(cerrada, status_code=200)
+
+            with pytest.raises(CobranzasBancoRequestError, match="QRWEB.*caja 8198.*CERRADA"):
+                cliente.asegurar_caja_abierta()
+
+        assert mock_request.call_count == 1  # no intenta aperturar: api-cobranzas lo rechazaría
+
+    def test_caja_del_dia_abierta_sigue(self):
+        cliente = _cliente()
+        with patch("services.cobranzas_banco_client.requests.post") as mock_post, \
+                patch("services.cobranzas_banco_client.requests.request") as mock_request:
+            mock_post.return_value = _response({"access_token": "tok"})
+            mock_request.return_value = _response({"estado": "ABIERTA", "dispositivo_id": "8199"}, status_code=200)
+
+            cliente.asegurar_caja_abierta()
+
+        assert mock_request.call_count == 1
+
     def test_asegurar_caja_abierta_apertura_si_no_existe(self):
         cliente = _cliente()
         with patch("services.cobranzas_banco_client.requests.post") as mock_post, \
