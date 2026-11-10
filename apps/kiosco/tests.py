@@ -198,6 +198,17 @@ class TestGenerarQr:
         assert r.status_code == 409
         assert "23:59" in r.json()["error"]
 
+    def test_vence_a_los_10_minutos_pero_no_pasa_de_las_2359(self, sip, settings, monkeypatch):
+        settings.KIOSCO_MINUTOS_QR = 10
+        temprano = timezone.make_aware(datetime(2026, 11, 9, 15, 0, 0))
+        monkeypatch.setattr(services.timezone, "now", lambda: temprano)
+        assert _generar(1).vence_en == temprano + timedelta(minutes=10)
+
+        tarde = timezone.make_aware(datetime(2026, 11, 9, 23, 55, 0))
+        monkeypatch.setattr(services.timezone, "now", lambda: tarde)
+        pago = _generar(1)
+        assert timezone.localtime(pago.vence_en).strftime("%H:%M:%S") == "23:59:00"
+
     def test_falla_sip(self, sip, monkeypatch):
         def falla(_):
             raise MC4RequestError("generar QR: caído")

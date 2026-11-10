@@ -139,6 +139,12 @@ def nuevo_alias(ahora) -> str:
     return f"{SolicitudLiquidacion.PREFIJO_KIOSCO}{timezone.localtime(ahora):%Y%m%d%H%M%S}-{sufijo}"
 
 
+def _vencimiento(ahora):
+    """KIOSCO_MINUTOS_QR minutos, pero nunca después de las 23:59 de hoy: el QR de SIP vale por el día."""
+    cierre = timezone.localtime(ahora).replace(hour=23, minute=59, second=0, microsecond=0)
+    return min(ahora + timedelta(minutes=settings.KIOSCO_MINUTOS_QR), cierre)
+
+
 def generar_qr(kiosco: str, nro_cliente: str, cantidad: int) -> tuple[PagoKiosco, str]:
     """Vuelve a consultar la deuda (nunca se confía en lo que manda la pantalla), arma el cobro de
     los `cantidad` comprobantes más antiguos y pide el QR a SIP. Devuelve (pago, imagen base64)."""
@@ -170,7 +176,7 @@ def generar_qr(kiosco: str, nro_cliente: str, cantidad: int) -> tuple[PagoKiosco
     pago = PagoKiosco.objects.create(
         alias=alias, kiosco=kiosco, nro_cliente=cliente["nro_cliente"], nombre_cliente=cliente["nombre"][:200],
         detalle=[{**i, "importe_firmado": float(importe_firmado(i))} for i in seleccion],
-        monto=monto, glosa=texto_glosa, vence_en=ahora + timedelta(minutes=settings.KIOSCO_MINUTOS_QR),
+        monto=monto, glosa=texto_glosa, vence_en=_vencimiento(ahora),
     )
     logger.info("kiosco.qr_generado alias=%s kiosco=%s nro_cliente=%s monto=%s", alias, kiosco, pago.nro_cliente, monto)
     return pago, resultado.imagen_qr_base64
@@ -462,7 +468,7 @@ def enviar_factura_por_correo(pago: PagoKiosco, correo: str | None) -> str:
         f"Hola {pago.nombre_cliente or ''},\n\n"
         f"Gracias por tu pago. Adjuntamos tu factura{' N° ' + nro if nro else ''} "
         f"del cliente {pago.nro_cliente} por Bs {pago.monto:.2f}, pagada con QR en un cajero automático de CESSA.\n\n"
-        "Esta cuenta no recibe mensajes. Para consultas: Atención al Cliente (591-4) 64-51200, "
+        "Esta cuenta no recibe mensajes. Para consultas: Atención al Cliente (591-4) 64-53126, "
         "línea gratuita 176, o en nuestras oficinas.\n\n"
         "Compañía Eléctrica Sucre S.A."
     )

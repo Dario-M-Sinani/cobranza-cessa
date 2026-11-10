@@ -220,7 +220,7 @@ KIOSCO_TOKENS = dict(
 # Redes desde las que se acepta una pantalla (además del token). Nunca internet.
 KIOSCO_REDES = env.list("KIOSCO_REDES", default=["10.0.0.0/8", "127.0.0.1/32"])
 # Vigencia del QR en pantalla, como el bot (después se da de baja en SIP).
-KIOSCO_MINUTOS_QR = env.int("KIOSCO_MINUTOS_QR", default=5)
+KIOSCO_MINUTOS_QR = env.int("KIOSCO_MINUTOS_QR", default=10)
 # Barra de avisos de cortes (apps/kiosco/avisos.py). Programados: API interna de cortes (header
 # Authorization con el token, sin "Bearer"; su certificado es de Cloudflare Origin CA: VERIFY con la
 # ruta al .pem, como COBRANZAS_BANCO_VERIFY). Emergencias (y respaldo de los programados): la
