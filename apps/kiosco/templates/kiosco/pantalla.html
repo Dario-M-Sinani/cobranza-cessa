@@ -708,7 +708,9 @@
   var ESTILOS_TICKET = {
     termica80: "@page{size:80mm auto;margin:0}body{width:72mm;margin:0 auto;padding:3mm 0;font-size:12px}",
     termica58: "@page{size:58mm auto;margin:0}body{width:48mm;margin:0 auto;padding:2mm 0;font-size:10px}.total b{font-size:18px}",
-    carta: "@page{size:letter;margin:15mm}body{width:90mm;margin:0 auto;font-size:11px}.total b{font-size:20px}h1{font-size:16px}"
+    // Hoja carta: una tira angosta (como ticket) arriba al centro, más larga que ancha.
+    carta: "@page{size:letter;margin:12mm}body{width:62mm;margin:0 auto;font-size:9.5px;line-height:1.5}.total b{font-size:17px}h1{font-size:14px}" +
+      "hr{margin:9px 0}.fila{margin:4px 0}p{margin:3px 0}"
   };
 
   function filas(pares) {
@@ -723,7 +725,8 @@
       return '<div class="fila"><span>' + html(m.periodo) + (m.detalle && m.detalle.toUpperCase() !== "CONSUMO" ? " (" + html(m.detalle) + ")" : "") +
         "</span><b>" + html(Number(m.importe).toFixed(2)) + "</b></div>";
     }).join("");
-    return '<h1>CESSA</h1><p class="c b">COMPAÑÍA ELÉCTRICA SUCRE S.A.</p><p class="c">NIT: 1000831029</p><hr>' +
+    return (r.prueba ? '<p class="c b grande">*** PRUEBA · SIN VALOR ***</p><hr>' : "") +
+      '<h1>CESSA</h1><p class="c b">COMPAÑÍA ELÉCTRICA SUCRE S.A.</p><p class="c">NIT: 1000831029</p><hr>' +
       '<p class="c b grande">RECIBO DE PAGO</p><p class="c">(no es factura)</p>' +
       '<div class="total"><span>MONTO CANCELADO</span><b>Bs. ' + html(Number(r.total).toFixed(2)) + "</b></div>" +
       filas([["CLIENTE:", r.nombre], ["N° DE CLIENTE:", r.nro_cliente], ["FECHA DE PAGO:", r.fecha_pago], ["MEDIO:", "Pago con QR"],
@@ -734,6 +737,12 @@
       '<div class="pie">' + filas([["N° de transacción:", r.codigo], ["N° de orden:", r.numero_orden]]) +
       "<p>Consultas: (591-4) 64-51200 · 72877668 · Emergencias 176</p><p class=\"b\">CESSA, la energía del desarrollo</p><hr><p class=\"dtic\">Departamento de Tecnologías de la Información y Comunicación<br>DTIC-CESSA</p></div>";
   }
+
+  var RECIBO_DE_PRUEBA = {
+    prueba: true, nro_cliente: "000000", nombre: "CLIENTE DE PRUEBA", total: "143.20", fecha_pago: "10/11/2026 12:00",
+    cajero: "cajero-1", codigo: "CESSA-KIO-PRUEBA", numero_orden: "0000000",
+    meses: [{ periodo: "Septiembre 2026", detalle: "CONSUMO", importe: "71.60" }, { periodo: "Octubre 2026", detalle: "CONSUMO", importe: "71.60" }]
+  };
 
   function imprimir(cuerpo) {
     if (impresion === "ninguna") return;
@@ -925,6 +934,8 @@
     setInterval(cargarGaleria, GALERIA_MS);
     setInterval(function () { if ($("protector").classList.contains("visible")) siguienteFoto($("protector-fotos")); }, FOTO_PROTECTOR_MS);
     setInterval(function () { siguienteFoto($("fondo-fotos")); }, FOTO_FONDO_MS);
+    // ?recibo=probar: imprime un recibo de ejemplo (marcado PRUEBA) para ajustar la impresora.
+    if (params.get("recibo") === "probar") setTimeout(function () { imprimir(ticketRecibo(RECIBO_DE_PRUEBA)); }, 3000);
   }
 })();
 </script>
