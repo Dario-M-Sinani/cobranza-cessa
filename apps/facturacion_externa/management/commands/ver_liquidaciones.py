@@ -41,7 +41,7 @@ class Command(BaseCommand):
         for s in solicitudes:
             self.stdout.write(
                 f"#{s.id} {s.recibido_en:%Y-%m-%d %H:%M} UTC  {s.alias}  cliente {s.nro_cliente}  "
-                f"Bs {s.monto}  canal={'bot-telegram' if s.origen == s.Origen.BOT_TELEGRAM else 'web'}  "
+                f"Bs {s.monto}  canal={ {s.Origen.BOT_TELEGRAM: 'bot-telegram', s.Origen.KIOSCO: 'kiosco'}.get(s.origen, 'web')}  "
                 f"banco={s.banco or '-'}  estado={s.estado}  intentos={s.intentos}  "
                 f"pdf={'sí' if s.comprobante_pdf else 'no'}  uuid={s.cobranzas_uuid or '-'}"
             )

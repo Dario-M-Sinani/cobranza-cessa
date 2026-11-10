@@ -6,6 +6,8 @@ decide por el prefijo del alias:
 
 - `txqr-` (QR del panel de cobranza): se confirma contra SIP con `verificar_pago()` -- igual
   que la tarea periódica, así un aviso falso no puede marcar nada.
+- `CESSA-KIO-` (pantallas de autoservicio, apps.kiosco): mismo criterio, se confirma contra SIP
+  y se factura acá mismo. Las pantallas están en la red interna, sin internet.
 - Prefijos de `settings.SIP_CALLBACK_SIN_REENVIO` (hoy `CESSA-BOT-`, el bot de Telegram): se
   responde `0000` sin reenviar. Ese sistema no tiene URL pública y detecta el pago consultando
   el estado del QR a SIP por su cuenta; el aviso solo se registra en el log.
@@ -30,7 +32,7 @@ from rest_framework.views import APIView
 from apps.cobranza import services as cobranza_services
 from apps.cobranza.models import TransaccionQR
 
-from .models import AvisoSip
+from .models import AvisoSip, SolicitudLiquidacion
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +88,10 @@ class SipCallbackView(APIView):
         if alias.startswith(PREFIJO_PANEL):
             return self._confirmar_en_panel(alias)
 
-        # Antes que los reenvíos: "CESSA-BOT-" también empieza con "CESSA-".
+        # Antes que los reenvíos: "CESSA-KIO-" y "CESSA-BOT-" también empiezan con "CESSA-".
+        if alias.startswith(SolicitudLiquidacion.PREFIJO_KIOSCO):
+            return self._confirmar_kiosco(alias)
+
         if any(alias.startswith(prefijo) for prefijo in settings.SIP_CALLBACK_SIN_REENVIO):
             logger.info("sip_callback.sin_reenvio alias=%s", alias)
             return _respuesta("0000", "Registro Exitoso")
@@ -109,6 +114,23 @@ class SipCallbackView(APIView):
         # tomó antes la tarea periódica) no se toca nada. En ambos casos el aviso se recibió.
         cobranza_services.verificar_pago(transaccion)
         logger.info("sip_callback.panel alias=%s estado=%s", alias, transaccion.estado)
+        return _respuesta("0000", "Registro Exitoso")
+
+    def _confirmar_kiosco(self, alias: str) -> Response:
+        # Import tardío: apps.kiosco depende de esta app, no al revés.
+        from apps.kiosco import services as kiosco_services
+        from apps.kiosco.models import PagoKiosco
+
+        pago = PagoKiosco.objects.filter(alias=alias).first()
+        if pago is None:
+            logger.warning("sip_callback.alias_desconocido alias=%s", alias)
+            return _respuesta("9999", "Alias no reconocido")
+
+        # Igual que el panel: el aviso no se cree, se confirma contra SIP. Si ya se registró
+        # (reintento de SIP, o lo vio antes la pantalla) no se toca nada.
+        if pago.estado != PagoKiosco.Estado.PAGADO:
+            pago = kiosco_services.consultar_sip(pago)
+        logger.info("sip_callback.kiosco alias=%s estado=%s", alias, pago.estado)
         return _respuesta("0000", "Registro Exitoso")
 
     def _reenviar(self, alias: str, url: str, datos) -> Response:

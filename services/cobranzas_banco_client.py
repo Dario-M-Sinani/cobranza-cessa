@@ -142,9 +142,12 @@ def construir_documento(
     }
 
 
-def verificacion_tls() -> bool | str:
-    """COBRANZAS_BANCO_VERIFY -> el `verify` de requests: "true"/"false" o la ruta a un .pem."""
-    valor = str(getattr(settings, "COBRANZAS_BANCO_VERIFY", "true")).strip()
+def verificacion_tls(valor=None) -> bool | str:
+    """COBRANZAS_BANCO_VERIFY (u otro valor del mismo estilo) -> el `verify` de requests:
+    "true"/"false" o la ruta a un .pem."""
+    if valor is None:
+        valor = getattr(settings, "COBRANZAS_BANCO_VERIFY", "true")
+    valor = str(valor).strip()
     if valor.lower() in ("", "true", "1", "si", "sí", "yes"):
         return True
     if valor.lower() in ("false", "0", "no"):

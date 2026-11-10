@@ -1,0 +1,932 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Pago con QR · CESSA</title>
+<style>
+  /* Paleta de cessa.com.bo (CessaLanding, resources/css/app.css): azul #004c98, amarillo #ffe71e. */
+  :root {
+    --azul-50: #eef6fd;
+    --azul-100: #dceefc;
+    --azul-200: #b6ddf8;
+    --azul-300: #82c3f2;
+    --azul-900: #004c98;
+    --azul-950: #00335f;
+    --ambar-50: #fffceb;
+    --ambar-200: #fff385;
+    --ambar-400: #ffe71e;
+    --ambar-500: #f5d800;
+    --ambar-700: #a68e00;
+    --ambar-900: #4d4300;
+    --gris-50: #f9fafb;
+    --gris-200: #e5e7eb;
+    --gris-300: #d1d5db;
+    --gris-500: #6b7280;
+    --gris-600: #4b5563;
+    --gris-900: #111827;
+    --verde-50: #ecfdf5;
+    --verde-100: #d1fae5;
+    --verde-200: #a7f3d0;
+    --verde-700: #047857;
+    --verde-800: #065f46;
+    --rojo-50: #fef2f2;
+    --rojo-600: #dc2626;
+    --rojo-800: #991b1b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--azul-50); color: var(--gris-900);
+    font-family: "Instrument Sans", "Segoe UI", system-ui, Roboto, Arial, sans-serif;
+    -webkit-user-select: none; user-select: none; touch-action: manipulation;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+
+  /* Cabecera como la de la web: franja azul arriba, barra blanca con el logo. */
+  .franja {
+    background: var(--azul-900); border-bottom: 1px solid var(--azul-950); color: #fff;
+    font-size: clamp(13px, 1.8vh, 16px); padding: 0.8vh 32px; display: flex; justify-content: space-between; gap: 16px;
+  }
+  .franja b { color: var(--ambar-400); }
+  .franja span:last-child { color: var(--azul-100); }
+  .franja.con-avisos { display: none; }
+
+  /* Barra de avisos de cortes (los de la web), corre de derecha a izquierda. */
+  .avisos { display: none; background: var(--azul-950); color: #fff; font-size: clamp(13px, 1.8vh, 17px); overflow: hidden; align-items: stretch; flex: none; }
+  .avisos.visible { display: flex; }
+  .avisos .titulo {
+    flex: none; background: var(--ambar-400); color: var(--azul-950); font-weight: 800; text-transform: uppercase;
+    letter-spacing: .06em; padding: .6vh 14px; display: flex; align-items: center; gap: 6px; z-index: 1;
+  }
+  .avisos .pista { flex: 1; overflow: hidden; display: flex; align-items: center; }
+  .avisos .cinta { display: inline-flex; white-space: nowrap; animation: correr linear infinite; will-change: transform; }
+  .avisos .item { padding: .6vh 0; margin-right: 56px; }
+  .avisos .item b { color: var(--ambar-400); margin-right: 8px; }
+  .avisos .item.emergencia b { background: #b91c1c; color: #fff; padding: 2px 10px; border-radius: 6px; }
+  .avisos .item.restablecido b { background: var(--verde-700); color: #fff; padding: 2px 10px; border-radius: 6px; }
+  @keyframes correr { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  header {
+    background: #fff; border-bottom: 1px solid var(--gris-200); box-shadow: 0 1px 3px rgba(0,0,0,.06);
+    display: flex; align-items: center; gap: 20px; padding: 1.2vh 32px;
+  }
+  header img { height: clamp(40px, 6.5vh, 60px); }
+  header .marca { font-size: clamp(18px, 2.6vh, 24px); font-weight: 800; color: var(--azul-950); line-height: 1.1; }
+  header .marca small { display: block; font-size: 0.6em; font-weight: 600; color: var(--gris-500); }
+
+  main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 2vh 24px; min-height: 0; overflow-y: auto; }
+  .pantalla { display: none; width: 100%; max-width: 980px; max-height: 100%; }
+  .pantalla.activa { display: flex; flex-direction: column; align-items: center; gap: clamp(10px, 2.2vh, 24px); }
+
+  .pastilla {
+    display: inline-block; padding: 6px 16px; background: var(--azul-50); border: 1px solid var(--azul-200);
+    color: var(--azul-900); border-radius: 999px; font-size: clamp(12px, 1.7vh, 15px); font-weight: 700;
+    text-transform: uppercase; letter-spacing: .08em;
+  }
+  h2 { margin: 0; font-size: clamp(28px, 4.6vh, 44px); font-weight: 800; color: var(--azul-950); text-align: center; }
+  p.ayuda { margin: 0; font-size: clamp(17px, 2.5vh, 23px); color: var(--gris-600); text-align: center; }
+
+  button {
+    font: inherit; border: 0; border-radius: 14px; cursor: pointer;
+    min-height: clamp(56px, 8vh, 80px); padding: 0 32px; font-size: clamp(20px, 3vh, 28px); font-weight: 800;
+  }
+  button:active { transform: scale(0.97); }
+  button:disabled { opacity: 0.5; }
+  /* Botón principal = "Pagar con QR CESSA" de la web: ámbar con texto azul oscuro. */
+  .primario { background: var(--ambar-500); color: var(--azul-950); box-shadow: 0 4px 10px rgba(0,0,0,.12); }
+  .secundario { background: var(--azul-50); color: var(--azul-900); border: 2px solid var(--azul-200); }
+  .oscuro { background: var(--azul-900); color: #fff; }
+
+  /* Inicio: teclado */
+  .tarjeta-gris {
+    background: var(--gris-50); border: 1px solid var(--gris-200); border-radius: 24px; box-shadow: 0 1px 2px rgba(0,0,0,.05);
+    padding: clamp(16px, 2.6vh, 32px); display: flex; flex-direction: column; align-items: center; gap: clamp(10px, 1.8vh, 20px);
+  }
+  .etiqueta { font-size: clamp(13px, 1.8vh, 16px); font-weight: 700; color: #374151; text-transform: uppercase; letter-spacing: .08em; }
+  .numero {
+    width: 520px; max-width: 100%; height: clamp(60px, 9.5vh, 96px); border-radius: 14px; background: #fff;
+    border: 2px solid var(--azul-900); font-family: Consolas, "Courier New", monospace;
+    font-size: clamp(36px, 6vh, 56px); font-weight: 700; letter-spacing: 6px;
+    display: flex; align-items: center; justify-content: center; color: var(--azul-950);
+  }
+  .numero.vacio { border-color: var(--gris-300); color: #9ca3af; font-size: clamp(20px, 3vh, 28px); font-weight: 400; letter-spacing: 0; font-family: inherit; }
+  .teclado { display: grid; grid-template-columns: repeat(3, 156px); gap: 14px; }
+  .teclado button {
+    min-height: clamp(54px, 9vh, 96px); font-size: clamp(30px, 5vh, 44px); background: #fff; color: var(--gris-900);
+    border: 1px solid var(--gris-300); box-shadow: 0 1px 2px rgba(0,0,0,.05); font-weight: 700;
+  }
+  .teclado button.borrar { font-size: clamp(18px, 2.6vh, 24px); color: var(--rojo-600); }
+  .teclado button.ok { background: var(--ambar-500); color: var(--azul-950); border: 0; font-size: clamp(18px, 2.6vh, 24px); font-weight: 800; }
+
+  /* Deuda */
+  .tarjeta { background: #fff; border: 1px solid var(--gris-200); border-radius: 20px; width: 100%; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+  .cliente { padding: clamp(14px, 2vh, 22px) 28px; background: var(--gris-50); border-bottom: 1px solid var(--gris-200); }
+  .cliente .nombre { font-size: clamp(24px, 3.6vh, 34px); font-weight: 800; color: var(--azul-950); }
+  .cliente .nro { font-size: clamp(16px, 2.2vh, 20px); color: var(--gris-600); margin-top: 2px; }
+  .cliente .nro b { font-family: Consolas, monospace; color: var(--gris-900); }
+  .meses { max-height: 40vh; overflow-y: auto; }
+  /* Sin casillas: se toca la fila del mes hasta el que se paga y quedan pintadas esa y las anteriores. */
+  .mes {
+    display: flex; align-items: center; gap: 20px; padding: clamp(12px, 1.8vh, 18px) 28px; border-top: 1px solid var(--gris-200);
+    border-left: 8px solid transparent; font-size: clamp(19px, 2.8vh, 26px); cursor: pointer; transition: background .15s, border-color .15s;
+  }
+  .mes:first-child { border-top: 0; }
+  .mes { color: var(--gris-500); }
+  .mes.elegido { background: var(--azul-100); border-left-color: var(--azul-900); color: var(--gris-900); }
+  .mes.elegido .periodo { font-weight: 800; }
+  .mes.elegido .periodo { color: var(--azul-950); }
+  .mes.elegido .importe { color: var(--azul-900); }
+  .mes.bloqueado { color: var(--gris-500); }
+  .mes .periodo { flex: 1; font-weight: 600; }
+  .mes .tipo {
+    display: inline-block; margin-left: 10px; padding: 2px 10px; border-radius: 999px; font-size: 0.6em; font-weight: 700;
+    background: var(--azul-50); color: #17639f; border: 1px solid var(--azul-200); vertical-align: middle;
+  }
+  .mes .tipo.conciliacion { background: var(--verde-50); color: var(--verde-700); border-color: var(--verde-200); }
+  .mes .importe { font-family: Consolas, monospace; font-weight: 700; }
+  .mes .importe.credito { color: var(--verde-700); }
+
+  /* Resumen = panel azul de la web con el botón ámbar. */
+  .resumen {
+    width: 100%; background: var(--azul-900); color: #fff; border-radius: 18px; padding: clamp(14px, 2vh, 22px) 28px;
+    display: flex; align-items: center; justify-content: space-between; gap: 24px;
+  }
+  .resumen .total { font-size: clamp(18px, 2.6vh, 24px); color: var(--azul-100); }
+  .resumen .total b { display: block; font-size: clamp(30px, 4.8vh, 44px); color: #fff; font-family: Consolas, monospace; }
+  .resumen .acciones { display: flex; gap: 16px; }
+  .resumen .secundario { background: transparent; color: #fff; border-color: var(--azul-300); }
+  .vacio-deuda { padding: 28px; font-size: clamp(20px, 3vh, 26px); text-align: center; }
+  .vacio-deuda.ok { background: var(--verde-50); color: var(--verde-800); }
+  .vacio-deuda.aviso { background: var(--ambar-50); color: var(--ambar-900); }
+
+  /* QR = modal de pago de la web. */
+  .qr-tarjeta { background: #fff; border: 1px solid var(--gris-200); border-radius: 24px; box-shadow: 0 20px 40px rgba(0,51,95,.15); padding: clamp(14px, 2.4vh, 28px) 40px; display: flex; flex-direction: column; align-items: center; gap: clamp(8px, 1.6vh, 16px); }
+  .qr-tarjeta img { width: min(38vh, 420px); height: min(38vh, 420px); display: block; image-rendering: pixelated; border: 1px solid var(--gris-200); border-radius: 14px; }
+  .monto-etiqueta { font-size: clamp(13px, 1.8vh, 16px); color: var(--gris-500); text-transform: uppercase; font-weight: 700; letter-spacing: .06em; text-align: center; }
+  .monto { font-size: clamp(32px, 5vh, 46px); font-weight: 900; color: var(--azul-900); font-family: Consolas, monospace; text-align: center; }
+  .cuenta { background: var(--ambar-50); border: 1px solid var(--ambar-200); border-radius: 14px; padding: 8px 24px; text-align: center; color: var(--ambar-900); font-weight: 700; font-size: clamp(16px, 2.2vh, 20px); }
+  .cuenta b { display: block; font-family: Consolas, monospace; font-size: clamp(24px, 3.6vh, 32px); color: var(--ambar-700); }
+  .cuenta.poco b { color: var(--rojo-600); }
+
+  /* Resultado */
+  .icono { width: clamp(110px, 16vh, 150px); height: clamp(110px, 16vh, 150px); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: clamp(60px, 9vh, 88px); font-weight: 800; background: var(--verde-100); color: var(--verde-700); }
+  .icono.aviso { background: var(--ambar-50); color: var(--ambar-700); border: 3px solid var(--ambar-200); }
+  .icono.error { background: var(--rojo-50); color: var(--rojo-600); }
+  .icono.espera { background: var(--azul-50); }
+  #r-titulo.exito { color: var(--verde-800); }
+  .impresion { display: flex; align-items: center; gap: 12px; font-size: clamp(18px, 2.6vh, 23px); color: var(--azul-900); font-weight: 700; background: var(--azul-50); border: 1px solid var(--azul-200); border-radius: 14px; padding: 12px 22px; }
+  .acciones-resultado { display: flex; gap: 16px; }
+
+  .pregunta {
+    display: flex; flex-direction: column; align-items: center; gap: 14px; background: var(--azul-50);
+    border: 1px solid var(--azul-200); border-radius: 18px; padding: clamp(12px, 2vh, 20px) 32px;
+    font-size: clamp(20px, 3vh, 28px); font-weight: 800; color: var(--azul-950);
+  }
+  .girando { width: 56px; height: 56px; border: 7px solid var(--azul-200); border-top-color: var(--azul-900); border-radius: 50%; animation: girar 1s linear infinite; }
+  .impresion .girando { width: 26px; height: 26px; border-width: 4px; }
+  @keyframes girar { to { transform: rotate(360deg); } }
+
+  #aviso {
+    position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); max-width: 90%;
+    background: var(--rojo-50); color: var(--rojo-800); border: 1px solid #fecaca; font-size: clamp(18px, 2.6vh, 23px); font-weight: 600;
+    padding: 16px 28px; border-radius: 14px; display: none; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,.12);
+  }
+  #aviso.visible { display: block; }
+  footer { text-align: center; color: var(--gris-500); font-size: 14px; padding: 6px; flex: none; border-top: 1px solid var(--gris-200); }
+
+  /* Fondo dinámico: manchas suaves con los colores de la web que se mueven despacio, y una
+     onda de "energía" abajo. Solo transform/opacity (sin blur): no carga el equipo del kiosco. */
+  .fondo { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none;
+    background: linear-gradient(160deg, #f7fbff 0%, var(--azul-50) 55%, var(--azul-100) 100%); }
+  .fondo .mancha { position: absolute; border-radius: 50%; will-change: transform; animation: flotar ease-in-out infinite alternate; }
+  .fondo .m1 { width: 70vmax; height: 70vmax; left: -25vmax; top: -30vmax; animation-duration: 26s;
+    background: radial-gradient(circle, rgba(0,76,152,.16) 0%, rgba(0,76,152,0) 65%); }
+  .fondo .m2 { width: 60vmax; height: 60vmax; right: -22vmax; bottom: -28vmax; animation-duration: 32s; animation-delay: -8s;
+    background: radial-gradient(circle, rgba(255,231,30,.30) 0%, rgba(255,231,30,0) 65%); }
+  .fondo .m3 { width: 45vmax; height: 45vmax; right: 5vmax; top: 10vmax; animation-duration: 38s; animation-delay: -15s;
+    background: radial-gradient(circle, rgba(130,195,242,.28) 0%, rgba(130,195,242,0) 65%); }
+  .fondo .m4 { width: 35vmax; height: 35vmax; left: 10vmax; bottom: -5vmax; animation-duration: 29s; animation-delay: -20s;
+    background: radial-gradient(circle, rgba(0,51,95,.10) 0%, rgba(0,51,95,0) 65%); }
+  @keyframes flotar {
+    0%   { transform: translate(0, 0) scale(1); }
+    50%  { transform: translate(8vw, 6vh) scale(1.12); }
+    100% { transform: translate(-6vw, 10vh) scale(.92); }
+  }
+  .fondo .ondas { position: absolute; left: 0; bottom: 0; width: 200%; height: 22vh; animation: ondear 40s linear infinite; will-change: transform; }
+  .fondo .ondas.lenta { opacity: .6; animation-duration: 65s; animation-direction: reverse; height: 28vh; }
+  @keyframes ondear { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  /* Algunas fotos del carrusel de la web, muy tenues, para que el fondo no quede blanco. */
+  .fondo .foto { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 3s ease-in-out; }
+  .fondo .foto.activa { opacity: .16; }
+
+  /* Protector de pantalla: el carrusel de la web a pantalla completa mientras nadie usa el kiosco. */
+  .avisos { position: relative; z-index: 60; }
+  #protector { position: fixed; inset: 0; z-index: 50; display: none; background: var(--azul-950); overflow: hidden; color: #fff; cursor: pointer; }
+  #protector.visible { display: block; }
+  #protector .foto { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 1.5s ease-in-out; animation: acercar 16s ease-in-out infinite alternate; }
+  #protector .foto.activa { opacity: 1; }
+  @keyframes acercar { from { transform: scale(1); } to { transform: scale(1.08); } }
+  #protector .velo { position: absolute; inset: 0; background: linear-gradient(rgba(0,20,40,.45), rgba(0,20,40,.75)); }
+  #protector .contenido { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3vh; text-align: center; padding: 24px; }
+  #protector .logo { background: #fff; border-radius: 20px; padding: 14px 26px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+  #protector .logo img { height: clamp(50px, 8vh, 80px); display: block; }
+  #protector h1 { margin: 0; font-size: clamp(40px, 7vh, 72px); font-weight: 900; text-shadow: 0 4px 18px rgba(0,0,0,.4); }
+  #protector p { margin: 0; font-size: clamp(20px, 3vh, 30px); color: var(--azul-100); }
+  #protector .toca { margin-top: 2vh; background: var(--ambar-500); color: var(--azul-950); font-weight: 800; font-size: clamp(22px, 3.4vh, 32px);
+    padding: 2vh 48px; border-radius: 999px; box-shadow: 0 10px 30px rgba(0,0,0,.3); animation: latir 2s ease-in-out infinite; }
+  @keyframes latir { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+  #protector .ayuda-linea { position: absolute; bottom: 3vh; left: 0; right: 0; text-align: center; font-size: clamp(15px, 2vh, 19px); color: var(--azul-100); }
+  #protector .ayuda-linea b { color: var(--ambar-400); }
+
+  @media (prefers-reduced-motion: reduce) { .fondo .mancha, .fondo .ondas, #protector .foto, #protector .toca { animation: none; } }
+
+  /* Fondo oscuro (azul CESSA con fotos, como la portada de la web): el blanco encandila en la
+     pantalla. Lo que va directo sobre el fondo pasa a texto claro; teclas, tarjetas y QR quedan claros. */
+  body { background: var(--azul-950); }
+  .fondo { background: linear-gradient(160deg, #003a70 0%, var(--azul-950) 60%, #001f3d 100%); }
+  .fondo .foto.activa { opacity: .28; }
+  .fondo .m1 { background: radial-gradient(circle, rgba(0,96,190,.45) 0%, rgba(0,96,190,0) 65%); }
+  .fondo .m2 { background: radial-gradient(circle, rgba(255,231,30,.14) 0%, rgba(255,231,30,0) 65%); }
+  .fondo .m3 { background: radial-gradient(circle, rgba(130,195,242,.14) 0%, rgba(130,195,242,0) 65%); }
+  .fondo .m4 { background: radial-gradient(circle, rgba(0,15,30,.45) 0%, rgba(0,15,30,0) 65%); }
+  .fondo .ondas path[fill] { fill: rgba(130,195,242,.08); }
+  .fondo .ondas path[stroke] { stroke: rgba(255,231,30,.35); }
+  main h2 { color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,.3); }
+  #r-titulo.exito { color: #86efac; }
+  main p.ayuda { color: var(--azul-100); }
+  .nota-antiguo { margin: 0; padding: 4px 14px; border-radius: 999px; background: rgba(255,231,30,.14); border: 1px solid rgba(255,231,30,.45);
+    color: var(--ambar-400); font-size: clamp(13px, 1.7vh, 16px); font-weight: 600; text-align: center; }
+  .pantalla > .pastilla { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.28); color: #fff; }
+  .tarjeta-gris { background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.22); box-shadow: 0 20px 40px rgba(0,0,0,.25); }
+  .tarjeta-gris .etiqueta { color: var(--azul-100); }
+  .oscuro { background: rgba(255,255,255,.12); border: 2px solid rgba(255,255,255,.35); }
+  footer { background: rgba(0,20,40,.6); color: var(--azul-200); border-top-color: rgba(255,255,255,.1); }
+
+  #impresora { position: fixed; width: 0; height: 0; border: 0; left: -9999px; top: 0; }
+</style>
+</head>
+<body>
+<div class="fondo" aria-hidden="true">
+  <div id="fondo-fotos"></div>
+  <span class="mancha m1"></span><span class="mancha m2"></span><span class="mancha m3"></span><span class="mancha m4"></span>
+  <svg class="ondas lenta" viewBox="0 0 2400 200" preserveAspectRatio="none"><path fill="rgba(0,76,152,.07)" d="M0 120 C300 60 600 180 1200 120 C1800 60 2100 180 2400 120 V200 H0 Z"/></svg>
+  <svg class="ondas" viewBox="0 0 2400 200" preserveAspectRatio="none"><path fill="rgba(0,76,152,.10)" d="M0 140 C200 100 400 180 600 140 C800 100 1000 180 1200 140 C1400 100 1600 180 1800 140 C2000 100 2200 180 2400 140 V200 H0 Z"/><path fill="none" stroke="rgba(255,231,30,.55)" stroke-width="3" d="M0 140 C200 100 400 180 600 140 C800 100 1000 180 1200 140 C1400 100 1600 180 1800 140 C2000 100 2200 180 2400 140"/></svg>
+</div>
+<div id="protector">
+  <div id="protector-fotos"></div>
+  <div class="velo"></div>
+  <div class="contenido">
+    {% if logo %}<div class="logo"><img src="data:image/png;base64,{{ logo }}" alt="CESSA"></div>{% endif %}
+    <h1>Paga tu factura con QR</h1>
+    <p>Solo con tu número de cliente, sin filas y con tu factura al instante</p>
+    <div class="toca">👆 Toca la pantalla para empezar</div>
+  </div>
+  <div class="ayuda-linea"><b>176</b> Línea gratuita de emergencias · Atención al Cliente: (591-4) 64-51200 · 72877668</div>
+</div>
+<div class="avisos" id="avisos"><div class="titulo">⚡ Cortes de energía</div><div class="pista"><div class="cinta" id="avisos-cinta"></div></div></div>
+<div class="franja" id="franja"><span><b>176</b> Línea gratuita de emergencias</span><span>Atención al Cliente: (591-4) 64-51200 · 72877668</span></div>
+<header>
+  {% if logo %}<img src="data:image/png;base64,{{ logo }}" alt="CESSA">{% endif %}
+  <div class="marca">Paga tu factura con QR<small>Compañía Eléctrica Sucre S.A.</small></div>
+</header>
+
+<main>
+  <section class="pantalla" id="p-sin-configurar">
+    <h2>Pantalla sin configurar</h2>
+    <p class="ayuda">Falta el código de esta pantalla. Avisa al personal de CESSA.</p>
+  </section>
+
+  <section class="pantalla" id="p-inicio">
+    <span class="pastilla">Pago rápido · QR CESSA</span>
+    <h2>Consulta y paga tu deuda</h2>
+    <div class="tarjeta-gris">
+      <span class="etiqueta">Número de Cliente</span>
+      <div class="numero vacio" id="numero">Escribe tu número</div>
+      <div class="teclado" id="teclado">
+        <button data-d="1">1</button><button data-d="2">2</button><button data-d="3">3</button>
+        <button data-d="4">4</button><button data-d="5">5</button><button data-d="6">6</button>
+        <button data-d="7">7</button><button data-d="8">8</button><button data-d="9">9</button>
+        <button class="borrar" data-d="borrar">Borrar</button><button data-d="0">0</button>
+        <button class="ok" data-d="ok" id="btn-consultar">Consultar</button>
+      </div>
+    </div>
+    <p class="ayuda">Está en tu aviso de cobro como «N° de Cliente».</p>
+  </section>
+
+  <section class="pantalla" id="p-deuda">
+    <div class="tarjeta">
+      <div class="cliente">
+        <div class="nombre" id="d-nombre"></div>
+        <div class="nro">N° de Cliente <b id="d-nro"></b></div>
+      </div>
+      <div class="meses" id="d-meses"></div>
+    </div>
+    <p class="ayuda" id="d-ayuda">Toca hasta qué mes quieres pagar (siempre desde el más antiguo). Para quitar un mes, toca el último marcado.</p>
+    <div class="resumen" id="d-resumen">
+      <div class="total" id="d-total"></div>
+      <div class="acciones">
+        <button class="secundario" data-accion="inicio">Volver</button>
+        <button class="primario" id="btn-qr">Pagar con QR</button>
+      </div>
+    </div>
+    <p class="nota-antiguo" id="d-nota">ⓘ Siempre se paga primero el mes más antiguo: no se puede saltar meses.</p>
+    <button class="oscuro" data-accion="inicio" id="d-volver-solo">Volver</button>
+  </section>
+
+  <section class="pantalla" id="p-qr">
+    <div class="qr-tarjeta">
+      <span class="pastilla">Escanea con la app de tu banco</span>
+      <img id="q-img" alt="Código QR de pago">
+      <div>
+        <div class="monto-etiqueta" id="q-periodo">Monto a pagar</div>
+        <div class="monto" id="q-monto"></div>
+      </div>
+      <div class="cuenta" id="q-cuenta"></div>
+    </div>
+    <button class="secundario" id="btn-cancelar">Cancelar</button>
+  </section>
+
+  <section class="pantalla" id="p-resultado">
+    <div class="icono" id="r-icono"></div>
+    <h2 id="r-titulo"></h2>
+    <p class="ayuda" id="r-texto"></p>
+    <div class="pregunta" id="r-pregunta">
+      <span id="r-pregunta-texto">¿Quieres tu recibo de pago impreso?</span>
+      <div class="acciones-resultado">
+        <button class="secundario" id="r-no-imprimir">No, gracias</button>
+        <button class="primario" id="r-si-imprimir">Sí, imprimir</button>
+      </div>
+    </div>
+    <div class="impresion" id="r-impresion"></div>
+    <div class="acciones-resultado">
+      <button class="secundario" id="r-reimprimir">Imprimir de nuevo</button>
+      <button class="primario" data-accion="inicio" id="r-volver">Terminar</button>
+    </div>
+  </section>
+
+</main>
+
+<footer>Compañía Eléctrica Sucre S.A. · NIT 1000831029</footer>
+<div id="aviso" role="alert"></div>
+<iframe id="impresora" title="Impresión" aria-hidden="true" tabindex="-1"></iframe>
+
+<script>
+(function () {
+  "use strict";
+
+  var API = "/api/kiosco";
+  var INACTIVIDAD_MS = 60000;      // sin tocar la pantalla: vuelve al inicio
+  var PROTECTOR_MS = 45000;        // inicio vacío sin tocar: sale el protector con el carrusel
+  var FOTO_PROTECTOR_MS = 8000;    // cada cuánto cambia la foto del protector (como la web)
+  var FOTO_FONDO_MS = 30000;       // y la del fondo, más despacio
+  var FOTOS_FONDO = 3;             // en el fondo van solo algunas
+  var GALERIA_MS = 60 * 60000;     // cada cuánto se vuelve a pedir la galería
+  var RESULTADO_MS = 25000;        // la pantalla de resultado se cierra sola
+  var SONDEO_MS = 2500;            // cada cuánto se pregunta por el QR
+  var MAX_DIGITOS = 10;
+  // Formato de la impresora de esta pantalla: termica80 | termica58 | carta | ninguna.
+  var FORMATOS = ["termica80", "termica58", "carta", "ninguna"];
+
+  // ---------------------------------------------------------------- configuración de la pantalla
+  // Se pasa una sola vez en la URL (?k=<token>&impresion=termica80) y queda guardada en el navegador.
+  function guardado(clave, valorUrl) {
+    if (valorUrl) {
+      try { localStorage.setItem(clave, valorUrl); } catch (e) { /* sin almacenamiento: sirve igual esta sesión */ }
+      return valorUrl;
+    }
+    try { return localStorage.getItem(clave) || ""; } catch (e) { return ""; }
+  }
+  var params = new URLSearchParams(location.search);
+  var token = guardado("kiosco_token", params.get("k"));
+  var impresion = guardado("kiosco_impresion", FORMATOS.indexOf(params.get("impresion")) !== -1 ? params.get("impresion") : "");
+  if (FORMATOS.indexOf(impresion) === -1) impresion = "termica80";
+  // confirmar=si (por defecto): pregunta antes de imprimir. confirmar=no: imprime sola al pagar.
+  var confirmarImpresion = guardado("kiosco_confirmar", ["si", "no"].indexOf(params.get("confirmar")) !== -1 ? params.get("confirmar") : "") !== "no";
+  if (location.search) history.replaceState(null, "", location.pathname);
+
+  // ---------------------------------------------------------------- utilidades
+  var $ = function (id) { return document.getElementById(id); };
+
+  function bs(valor) {
+    var n = Number(valor);
+    var partes = Math.abs(n).toFixed(2).split(".");
+    partes[0] = partes[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+    return (n < 0 ? "-" : "") + "Bs " + partes[0] + "," + partes[1];
+  }
+
+  function html(texto) {
+    return String(texto == null ? "" : texto).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  var temporizadorAviso = null;
+  function avisar(texto) {
+    var el = $("aviso");
+    el.textContent = texto;
+    el.classList.add("visible");
+    clearTimeout(temporizadorAviso);
+    temporizadorAviso = setTimeout(function () { el.classList.remove("visible"); }, 6000);
+  }
+
+  function api(metodo, ruta, cuerpo) {
+    return fetch(API + ruta, {
+      method: metodo,
+      headers: { "Content-Type": "application/json", "X-Kiosco-Token": token },
+      body: cuerpo ? JSON.stringify(cuerpo) : undefined,
+      cache: "no-store"
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (datos) {
+        if (!r.ok) {
+          var error = new Error(datos.error || datos.detail || "No se pudo completar la operación.");
+          error.status = r.status;
+          throw error;
+        }
+        return datos;
+      });
+    }, function () {
+      throw new Error("Sin conexión con el servidor. Intenta de nuevo.");
+    });
+  }
+
+  // ---------------------------------------------------------------- navegación
+  function estadoInicial() {
+    return { numero: "", cliente: null, cantidad: 0, pago: null, cobro: null, impreso: false };
+  }
+  var estado = estadoInicial();
+  var temporizadorInactividad = null;
+  var temporizadorSondeo = null;
+  var temporizadorCuenta = null;
+
+  function mostrar(id) {
+    var pantallas = document.querySelectorAll(".pantalla");
+    for (var i = 0; i < pantallas.length; i++) pantallas[i].classList.remove("activa");
+    $(id).classList.add("activa");
+    reiniciarInactividad();
+  }
+
+  function detenerQr() {
+    clearTimeout(temporizadorSondeo);
+    clearInterval(temporizadorCuenta);
+    temporizadorSondeo = temporizadorCuenta = null;
+  }
+
+  function irAlInicio() {
+    // Un QR abierto que nadie pagó se da de baja en SIP (si ya se pagó, el servidor lo sabe).
+    if (estado.pago && $("p-qr").classList.contains("activa")) {
+      api("POST", "/qr/" + encodeURIComponent(estado.pago.alias) + "/cancelar/").catch(function () {});
+    }
+    detenerQr();
+    estado = estadoInicial();
+    pintarNumero();
+    mostrar("p-inicio");
+  }
+
+  function reiniciarInactividad() {
+    clearTimeout(temporizadorInactividad);
+    var activa = document.querySelector(".pantalla.activa");
+    if (!activa) return;
+    if (activa.id === "p-deuda" || (activa.id === "p-inicio" && estado.numero)) {
+      temporizadorInactividad = setTimeout(irAlInicio, INACTIVIDAD_MS);
+    } else if (activa.id === "p-resultado" && !estado.pago) {
+      temporizadorInactividad = setTimeout(irAlInicio, RESULTADO_MS);
+    } else if (activa.id === "p-inicio") {
+      temporizadorInactividad = setTimeout(mostrarProtector, PROTECTOR_MS);
+    }
+    // En el QR manda la cuenta regresiva.
+  }
+
+  function mostrarProtector() {
+    if ($("p-inicio").classList.contains("activa") && !estado.numero) $("protector").classList.add("visible");
+  }
+
+  // El toque que quita el protector no llega al teclado (el protector está encima).
+  $("protector").addEventListener("click", function () {
+    $("protector").classList.remove("visible");
+    reiniciarInactividad();
+  });
+
+  document.addEventListener("pointerdown", reiniciarInactividad);
+  document.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+  document.addEventListener("click", function (e) {
+    if (e.target.closest("[data-accion=inicio]")) irAlInicio();
+  });
+
+  // ---------------------------------------------------------------- inicio
+  function pintarNumero() {
+    var el = $("numero");
+    el.textContent = estado.numero || "Escribe tu número";
+    el.classList.toggle("vacio", !estado.numero);
+    $("btn-consultar").disabled = !estado.numero;
+  }
+
+  $("teclado").addEventListener("click", function (e) {
+    var boton = e.target.closest("button");
+    if (!boton || boton.disabled) return;
+    var d = boton.getAttribute("data-d");
+    if (d === "borrar") estado.numero = estado.numero.slice(0, -1);
+    else if (d === "ok") return consultar();
+    else if (estado.numero.length < MAX_DIGITOS) estado.numero += d;
+    pintarNumero();
+  });
+
+  function consultar() {
+    var boton = $("btn-consultar");
+    boton.disabled = true;
+    boton.textContent = "Buscando…";
+    api("GET", "/clientes/" + encodeURIComponent(estado.numero) + "/").then(function (cliente) {
+      estado.cliente = cliente;
+      var opciones = cliente.cantidades;
+      estado.cantidad = opciones.length ? opciones[opciones.length - 1].cantidad : 0;
+      pintarDeuda();
+      mostrar("p-deuda");
+    }, function (error) {
+      avisar(error.status === 429 ? "Demasiadas consultas seguidas. Espera un minuto." : error.message);
+    }).then(function () {
+      boton.textContent = "Consultar";
+      pintarNumero();
+    });
+  }
+
+  // ---------------------------------------------------------------- deuda
+  function montoDe(cantidad) {
+    var opciones = estado.cliente.cantidades;
+    for (var i = 0; i < opciones.length; i++) if (opciones[i].cantidad === cantidad) return opciones[i].monto;
+    return null;
+  }
+
+  function periodoElegido() {
+    var items = estado.cliente.deuda.slice(0, estado.cantidad);
+    if (!items.length) return "";
+    return items.length === 1 ? items[0].periodo : items[0].periodo + " a " + items[items.length - 1].periodo;
+  }
+
+  function pintarDeuda() {
+    var c = estado.cliente;
+    $("d-nombre").textContent = c.nombre || "Cliente";
+    $("d-nro").textContent = c.nro_cliente;
+    var lista = $("d-meses");
+    lista.innerHTML = "";
+
+    var sinPago = !c.deuda.length || !c.cantidades.length;
+    $("d-ayuda").style.display = sinPago ? "none" : "";
+    $("d-resumen").style.display = sinPago ? "none" : "";
+    $("d-nota").style.display = sinPago ? "none" : "";
+    $("d-volver-solo").style.display = sinPago ? "" : "none";
+    if (sinPago) {
+      var vacio = document.createElement("div");
+      vacio.className = "vacio-deuda " + (c.deuda.length ? "aviso" : "ok");
+      vacio.textContent = c.deuda.length
+        ? "Tu saldo no permite generar un pago por QR. Consulta en ventanilla."
+        : "No tienes deuda pendiente. ¡Gracias por estar al día!";
+      lista.appendChild(vacio);
+      return;
+    }
+
+    c.deuda.forEach(function (item, i) {
+      var cantidad = i + 1;
+      var elegible = montoDe(cantidad) !== null;
+      var conciliacion = (item.detalle || "").toUpperCase().indexOf("CONCILIA") !== -1;
+      var fila = document.createElement("div");
+      fila.className = "mes" + (cantidad <= estado.cantidad ? " elegido" : "") + (elegible ? "" : " bloqueado");
+      fila.innerHTML = '<div class="periodo"></div><div class="importe"></div>';
+      fila.querySelector(".periodo").textContent = item.periodo;
+      var tipo = document.createElement("span");
+      tipo.className = "tipo" + (conciliacion ? " conciliacion" : "");
+      tipo.textContent = conciliacion ? "Conciliación" : (item.detalle || "Consumo");
+      fila.querySelector(".periodo").appendChild(tipo);
+      var importe = fila.querySelector(".importe");
+      importe.textContent = bs(item.importe);
+      if (Number(item.importe) < 0) importe.classList.add("credito");
+      // Tocar un mes marca hasta ese; tocar el último marcado lo quita. Nunca quedan meses saltados.
+      if (elegible) fila.addEventListener("click", function () {
+        estado.cantidad = cantidad === estado.cantidad ? anteriorElegible(cantidad) : cantidad;
+        pintarDeuda();
+      });
+      lista.appendChild(fila);
+    });
+
+    var n = estado.cantidad;
+    $("btn-qr").disabled = n === 0;
+    $("d-total").innerHTML = "";
+    if (n === 0) {
+      $("d-total").appendChild(document.createTextNode("Toca un mes para elegir cuánto pagar"));
+      return;
+    }
+    $("d-total").appendChild(document.createTextNode("Pagas " + (n === 1 ? "1 mes" : n + " meses")));
+    var total = document.createElement("b");
+    total.textContent = bs(montoDe(n));
+    $("d-total").appendChild(total);
+  }
+
+  // La cantidad cobrable anterior a `n` (una conciliación puede dejar un prefijo sin monto a pagar).
+  function anteriorElegible(n) {
+    for (var k = n - 1; k > 0; k--) if (montoDe(k) !== null) return k;
+    return 0;
+  }
+
+  $("btn-qr").addEventListener("click", function () {
+    var boton = this;
+    boton.disabled = true;
+    boton.textContent = "Generando…";
+    api("POST", "/qr/", { nro_cliente: estado.cliente.nro_cliente, cantidad: estado.cantidad }).then(function (pago) {
+      estado.pago = pago;
+      // Para la constancia impresa si la factura demora (el servidor no repite estos datos).
+      estado.cobro = { alias: pago.alias, monto: pago.monto, nro_cliente: estado.cliente.nro_cliente, nombre: estado.cliente.nombre, periodo: periodoElegido() };
+      $("q-img").src = "data:image/png;base64," + pago.qr;
+      $("q-monto").textContent = bs(pago.monto);
+      $("q-periodo").textContent = "Monto a pagar · " + estado.cobro.periodo;
+      mostrar("p-qr");
+      iniciarCuenta(pago.segundos_restantes);
+      sondear();
+    }, function (error) {
+      avisar(error.message);
+    }).then(function () {
+      boton.disabled = false;
+      boton.textContent = "Pagar con QR";
+    });
+  });
+
+  // ---------------------------------------------------------------- QR
+  function iniciarCuenta(segundos) {
+    var fin = Date.now() + segundos * 1000;
+    function pintar() {
+      var resta = Math.max(0, Math.round((fin - Date.now()) / 1000));
+      var m = Math.floor(resta / 60), s = resta % 60;
+      var el = $("q-cuenta");
+      el.innerHTML = "";
+      el.appendChild(document.createTextNode(resta ? "El QR vence en" : "El QR venció. Verificando…"));
+      if (resta) {
+        var b = document.createElement("b");
+        b.textContent = m + ":" + (s < 10 ? "0" : "") + s;
+        el.appendChild(b);
+      }
+      el.classList.toggle("poco", resta <= 60);
+    }
+    pintar();
+    temporizadorCuenta = setInterval(pintar, 1000);
+  }
+
+  function sondear() {
+    if (!estado.pago) return;
+    var alias = estado.pago.alias;
+    api("GET", "/qr/" + encodeURIComponent(alias) + "/").then(function (datos) {
+      if (!estado.pago || estado.pago.alias !== alias) return;
+      if (datos.estado === "pendiente") {
+        temporizadorSondeo = setTimeout(sondear, SONDEO_MS);
+      } else {
+        // Pagado (facturando, facturado o sin_factura): no se espera la factura, la emite el
+        // servidor solo y el cliente la descarga en la app o la web.
+        detenerQr();
+        mostrarResultado(datos);
+      }
+    }, function () {
+      // Corte de red pasajero: se sigue preguntando; el pago no se pierde (lo ve el servidor).
+      temporizadorSondeo = setTimeout(sondear, SONDEO_MS * 2);
+    });
+  }
+
+  $("btn-cancelar").addEventListener("click", function () {
+    var boton = this;
+    boton.disabled = true;
+    api("POST", "/qr/" + encodeURIComponent(estado.pago.alias) + "/cancelar/").then(function (datos) {
+      detenerQr();
+      if (datos.estado === "cancelado") {
+        estado.pago = null;
+        irAlInicio();
+      } else {
+        mostrarResultado(datos); // se pagó justo antes de cancelar
+      }
+    }, function (error) {
+      avisar(error.message);
+    }).then(function () { boton.disabled = false; });
+  });
+
+  // ---------------------------------------------------------------- impresión
+  // La pantalla imprime sin diálogo cuando Chrome corre con --kiosk --kiosk-printing: el
+  // comprobante se arma en un iframe oculto y va directo a la impresora predeterminada.
+  var ESTILOS_TICKET = {
+    termica80: "@page{size:80mm auto;margin:0}body{width:72mm;margin:0 auto;padding:3mm 0;font-size:12px}",
+    termica58: "@page{size:58mm auto;margin:0}body{width:48mm;margin:0 auto;padding:2mm 0;font-size:10px}.total b{font-size:18px}",
+    carta: "@page{size:letter;margin:15mm}body{width:90mm;margin:0 auto;font-size:11px}.total b{font-size:20px}h1{font-size:16px}"
+  };
+
+  function filas(pares) {
+    return pares.filter(function (p) { return p[1]; }).map(function (p) {
+      return '<div class="fila"><span>' + html(p[0]) + '</span><b>' + html(p[1]) + "</b></div>";
+    }).join("");
+  }
+
+  // Recibo de pago (no es la factura): cuánto se pagó, de qué meses y dónde bajar las facturas.
+  function ticketRecibo(r) {
+    var meses = (r.meses || []).map(function (m) {
+      return '<div class="fila"><span>' + html(m.periodo) + (m.detalle && m.detalle.toUpperCase() !== "CONSUMO" ? " (" + html(m.detalle) + ")" : "") +
+        "</span><b>" + html(Number(m.importe).toFixed(2)) + "</b></div>";
+    }).join("");
+    return '<h1>CESSA</h1><p class="c b">COMPAÑÍA ELÉCTRICA SUCRE S.A.</p><p class="c">NIT: 1000831029</p><hr>' +
+      '<p class="c b grande">RECIBO DE PAGO</p><p class="c">(no es factura)</p>' +
+      '<div class="total"><span>MONTO CANCELADO</span><b>Bs. ' + html(Number(r.total).toFixed(2)) + "</b></div>" +
+      filas([["CLIENTE:", r.nombre], ["N° DE CLIENTE:", r.nro_cliente], ["FECHA DE PAGO:", r.fecha_pago], ["MEDIO:", "Pago con QR"],
+             ["CAJERO AUTOMÁTICO:", r.cajero]]) +
+      '<hr><div class="fila b"><span>MESES PAGADOS</span><span>Bs.</span></div>' + meses +
+      '<hr class="doble"><div class="fila b"><span>TOTAL</span><span>' + html(Number(r.total).toFixed(2)) + "</span></div><hr>" +
+      '<p class="c b">TUS FACTURAS</p><p class="c">Se emiten automáticamente. Puedes descargarlas en la <b>app de CESSA</b> o en la web <b>www.cessa.com.bo</b> con tu <b>N° de cliente</b> y <b>N° de cuenta</b>.</p><hr>' +
+      '<div class="pie">' + filas([["N° de transacción:", r.codigo], ["N° de orden:", r.numero_orden]]) +
+      "<p>Consultas: (591-4) 64-51200 · 72877668 · Emergencias 176</p><p>*** GRACIAS POR SU PAGO ***</p><hr><p class=\"dtic\">Departamento de Tecnologías de la Información y Comunicación<br>DTIC-CESSA</p></div>";
+  }
+
+  function imprimir(cuerpo) {
+    if (impresion === "ninguna") return;
+    var css = "*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Courier New',Consolas,monospace;color:#000;line-height:1.35}" +
+      "h1{text-align:center;font-size:16px;font-weight:900}.c{text-align:center}.b{font-weight:bold}p{margin:2px 0}.grande{font-size:1.25em;letter-spacing:1px}" +
+      "hr{border:0;border-top:1px dashed #000;margin:8px 0}hr.doble{border-top:3px double #000}" +
+      ".fila{display:flex;justify-content:space-between;gap:8px;margin:3px 0}.fila b{text-align:right}" +
+      ".total{border:2px solid #000;padding:6px;margin:8px 0;text-align:center}.total span{display:block;font-weight:bold;letter-spacing:1px}" +
+      ".total b{display:block;font-size:22px}.pie{font-size:.85em;word-break:break-all}.pie p{text-align:center}.dtic{font-size:.85em;word-break:normal}" + ESTILOS_TICKET[impresion];
+    var marco = $("impresora");
+    marco.onload = function () {
+      marco.onload = null;
+      try { marco.contentWindow.focus(); marco.contentWindow.print(); } catch (e) { avisar("No se pudo imprimir. Pide tu recibo en ventanilla."); }
+    };
+    marco.srcdoc = '<!doctype html><html lang="es"><head><meta charset="utf-8"><style>' + css + "</style></head><body>" + cuerpo + "</body></html>";
+  }
+
+  function pintarImpresion(texto, girando) {
+    var el = $("r-impresion");
+    el.style.display = texto ? "" : "none";
+    el.innerHTML = girando ? '<div class="girando"></div>' : "🖨";
+    el.appendChild(document.createTextNode(texto || ""));
+  }
+
+  function imprimirRecibo(alias) {
+    if (impresion === "ninguna") return;
+    pintarImpresion("Preparando tu recibo…", true);
+    api("GET", "/qr/" + encodeURIComponent(alias) + "/recibo/").then(function (r) {
+      imprimir(ticketRecibo(r));
+      pintarImpresion("Retira tu recibo de la impresora.");
+      $("r-reimprimir").style.display = "";
+    }, function () {
+      pintarImpresion("No se pudo imprimir. Pide tu recibo en ventanilla.");
+    });
+  }
+
+  $("r-si-imprimir").addEventListener("click", function () {
+    $("r-pregunta").style.display = "none";
+    if (!estado.cobro || estado.impreso) return;
+    estado.impreso = true;
+    imprimirRecibo(estado.cobro.alias);
+  });
+
+  $("r-no-imprimir").addEventListener("click", function () {
+    $("r-pregunta").style.display = "none";
+    estado.impreso = true;
+  });
+
+  $("r-reimprimir").addEventListener("click", function () {
+    this.style.display = "none"; // una sola reimpresión
+    if (estado.cobro) imprimirRecibo(estado.cobro.alias);
+  });
+
+  // ---------------------------------------------------------------- resultado
+  var RESULTADOS = {
+    pagado: { simbolo: "✓", exito: true, titulo: "¡Pago realizado!",
+      texto: "Gracias por tu pago. Tu factura se emite automáticamente: descárgala en la app de CESSA o en www.cessa.com.bo con tu N° de cliente y N° de cuenta." },
+    vencido: { icono: "error", simbolo: "✕", titulo: "El QR venció", texto: "No se registró ningún pago. Puedes volver a intentarlo." },
+    cancelado: { icono: "error", simbolo: "✕", titulo: "Pago cancelado", texto: "No se registró ningún pago." }
+  };
+
+  function mostrarResultado(datos) {
+    // facturando, facturado y sin_factura son lo mismo para el cliente: el pago ya está.
+    var pagado = !RESULTADOS[datos.estado];
+    var r = pagado ? RESULTADOS.pagado : RESULTADOS[datos.estado];
+    var icono = $("r-icono");
+    icono.className = "icono" + (r.icono ? " " + r.icono : "");
+    icono.textContent = r.simbolo;
+    $("r-titulo").textContent = r.titulo;
+    $("r-titulo").className = r.exito ? "exito" : "";
+    $("r-texto").textContent = r.texto;
+    $("r-volver").textContent = pagado ? "Terminar" : "Volver";
+    $("r-reimprimir").style.display = "none";
+    pintarImpresion("");
+    $("r-pregunta").style.display = "none";
+
+    // Antes de imprimir se pregunta (no se gasta papel si el cliente no lo quiere), salvo
+    // confirmar=no. Sin respuesta, la pantalla vuelve sola al inicio.
+    if (pagado && !estado.impreso && estado.cobro && impresion !== "ninguna") {
+      if (confirmarImpresion) $("r-pregunta").style.display = "";
+      else $("r-si-imprimir").click();
+    }
+
+    estado.pago = null;
+    if (!$("p-resultado").classList.contains("activa")) mostrar("p-resultado");
+    else reiniciarInactividad();
+  }
+
+  // ---------------------------------------------------------------- avisos de cortes
+  var AVISOS_MS = 10 * 60 * 1000;   // cada cuánto se piden de nuevo (el gateway los lee de la web)
+  var PIXELES_POR_SEGUNDO = 50;    // velocidad de la barra: que se alcance a leer
+  var DIAS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+
+  function textoAviso(a) {
+    var partes = [];
+    if (a.fecha) {
+      var f = a.fecha.split("-");
+      var dia = new Date(Number(f[0]), Number(f[1]) - 1, Number(f[2]));
+      partes.push(DIAS[dia.getDay()] + " " + f[2] + "/" + f[1]);
+    }
+    if (a.tipo === "programado" && a.desde) partes.push("de " + a.desde + (a.hasta ? " a " + a.hasta : ""));
+    else if (a.desde) partes.push("desde las " + a.desde);
+    if (a.zonas) partes.push(a.zonas);
+    if (a.motivo) partes.push(a.motivo.charAt(0) + a.motivo.slice(1).toLowerCase());
+    return partes.join(" · ");
+  }
+
+  function pintarAvisos(lista) {
+    var barra = $("avisos"), cinta = $("avisos-cinta");
+    cinta.innerHTML = "";
+    barra.classList.toggle("visible", lista.length > 0);
+    $("franja").classList.toggle("con-avisos", lista.length > 0);
+    if (!lista.length) return;
+    // Dos copias seguidas: la animación corre la mitad y vuelve a empezar sin salto.
+    for (var copia = 0; copia < 2; copia++) {
+      lista.forEach(function (a) {
+        var item = document.createElement("span");
+        var etiqueta = a.tipo === "emergencia" ? (a.restablecido ? "Servicio restablecido" : "Corte de emergencia") : "Corte programado";
+        item.className = "item" + (a.tipo === "emergencia" ? (a.restablecido ? " restablecido" : " emergencia") : "");
+        var b = document.createElement("b");
+        b.textContent = etiqueta;
+        item.appendChild(b);
+        item.appendChild(document.createTextNode(textoAviso(a)));
+        cinta.appendChild(item);
+      });
+    }
+    requestAnimationFrame(function () {
+      cinta.style.animationDuration = Math.max(20, cinta.scrollWidth / 2 / PIXELES_POR_SEGUNDO) + "s";
+    });
+  }
+
+  function cargarAvisos() {
+    api("GET", "/avisos/").then(function (datos) { pintarAvisos(datos.avisos || []); }, function () { /* se queda con los que hay */ });
+  }
+
+  // ---------------------------------------------------------------- galería (carrusel de la web)
+  // Las fotos piden el token, así que no van como <img src> directo: se bajan con fetch y se
+  // muestran desde un blob.
+  var urlsFotos = [];
+
+  function bajarFoto(id) {
+    return fetch(API + "/galeria/" + id + "/", { headers: { "X-Kiosco-Token": token } })
+      .then(function (r) { return r.ok ? r.blob() : null; }, function () { return null; })
+      .then(function (blob) { return blob && blob.type.indexOf("image/") === 0 ? URL.createObjectURL(blob) : null; });
+  }
+
+  function llenar(contenedor, urls) {
+    contenedor.innerHTML = "";
+    urls.forEach(function (url, i) {
+      var img = document.createElement("img");
+      img.className = "foto" + (i === 0 ? " activa" : "");
+      img.alt = "";
+      img.src = url;
+      contenedor.appendChild(img);
+    });
+  }
+
+  function cargarGaleria() {
+    api("GET", "/galeria/").then(function (datos) {
+      return Promise.all((datos.fotos || []).map(function (f) { return bajarFoto(f.id); }));
+    }).then(function (urls) {
+      urls = urls.filter(Boolean);
+      if (!urls.length) return;  // sin fotos se queda con las que había (o el fondo animado solo)
+      urlsFotos.forEach(function (u) { URL.revokeObjectURL(u); });
+      urlsFotos = urls;
+      llenar($("protector-fotos"), urls);
+      llenar($("fondo-fotos"), urls.slice(0, FOTOS_FONDO));
+    }, function () { /* se queda con las que hay */ });
+  }
+
+  function siguienteFoto(contenedor) {
+    var fotos = contenedor.querySelectorAll(".foto");
+    if (fotos.length < 2) return;
+    var actual = contenedor.querySelector(".foto.activa");
+    var i = Array.prototype.indexOf.call(fotos, actual);
+    if (actual) actual.classList.remove("activa");
+    fotos[(i + 1) % fotos.length].classList.add("activa");
+  }
+
+  // ---------------------------------------------------------------- arranque
+  if (!token) {
+    mostrar("p-sin-configurar");
+  } else {
+    pintarNumero();
+    mostrar("p-inicio");
+    cargarAvisos();
+    setInterval(cargarAvisos, AVISOS_MS);
+    cargarGaleria();
+    setInterval(cargarGaleria, GALERIA_MS);
+    setInterval(function () { if ($("protector").classList.contains("visible")) siguienteFoto($("protector-fotos")); }, FOTO_PROTECTOR_MS);
+    setInterval(function () { siguienteFoto($("fondo-fotos")); }, FOTO_FONDO_MS);
+  }
+})();
+</script>
+</body>
+</html>

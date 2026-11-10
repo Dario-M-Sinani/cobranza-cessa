@@ -74,6 +74,19 @@ class LiquidacionDetalleSerializer(LiquidacionSerializer):
             "documento_pagador": fila.documento_pagador,
             "numero_orden_originante": fila.nro_orden,
         })
+        # Pagos del cajero automático (apps.kiosco): en qué pantalla y a dónde se mandó la factura.
+        pago = getattr(obj, "pago_kiosco", None)
+        if pago is not None:
+            datos["cajero"] = {
+                "pantalla": pago.kiosco,
+                "nombre_cliente": pago.nombre_cliente,
+                "nro_factura": pago.nro_factura,
+                "envios": [
+                    {"canal": e.get_canal_display(), "destino": e.destino, "registrado": e.registrado,
+                     "exitoso": e.exitoso, "error": e.error, "enviado_en": e.enviado_en.isoformat()}
+                    for e in pago.envios.all()
+                ],
+            }
         return datos
 
 

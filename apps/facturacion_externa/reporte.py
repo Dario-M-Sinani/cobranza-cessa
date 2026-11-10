@@ -34,6 +34,7 @@ GENERADO_POR = {
     SolicitudLiquidacion.Origen.CESSA_LARAVEL_WEB: "Web (cliente)",
     SolicitudLiquidacion.Origen.CESSA_LARAVEL_PANEL: "Panel de la web",
     SolicitudLiquidacion.Origen.BOT_TELEGRAM: "bot-telegram",
+    SolicitudLiquidacion.Origen.KIOSCO: "Cajero automático (kiosco)",
 }
 BANCOS = {"sip_bisa": "BISA", "bnb": "BNB"}
 _ALIAS_FECHA = re.compile(r"^CESSA-[A-Z]+-(\d{14})-")
@@ -70,11 +71,13 @@ def descripcion(solicitud: SolicitudLiquidacion) -> str:
         texto += " — Generado desde el panel"
     elif solicitud.origen == SolicitudLiquidacion.Origen.BOT_TELEGRAM:
         texto += " — Generado desde el bot de Telegram"
+    elif solicitud.origen == SolicitudLiquidacion.Origen.KIOSCO:
+        texto += " — Pagado en un cajero automático (kiosco)"
     return texto
 
 
 def creado_en(alias: str) -> datetime | None:
-    """La hora del alias: UTC en la web (CESSA-WEB-/CESSA-ADMIN-), Bolivia en el bot."""
+    """La hora del alias: UTC en la web (CESSA-WEB-/CESSA-ADMIN-), Bolivia en el bot y el kiosco."""
     m = _ALIAS_FECHA.match(alias)
     if not m:
         return None
@@ -82,7 +85,8 @@ def creado_en(alias: str) -> datetime | None:
         crudo = datetime.strptime(m.group(1), "%Y%m%d%H%M%S")
     except ValueError:
         return None
-    zona = BOLIVIA if alias.startswith(SolicitudLiquidacion.PREFIJO_BOT_TELEGRAM) else tz.utc
+    en_bolivia = (SolicitudLiquidacion.PREFIJO_BOT_TELEGRAM, SolicitudLiquidacion.PREFIJO_KIOSCO)
+    zona = BOLIVIA if alias.startswith(en_bolivia) else tz.utc
     return crudo.replace(tzinfo=zona).astimezone(BOLIVIA)
 
 

@@ -20,16 +20,21 @@ class SolicitudLiquidacion(models.Model):
         CESSA_LARAVEL_WEB = "cessa_laravel_web", "cessa-laravel (pago QR web)"
         CESSA_LARAVEL_PANEL = "cessa_laravel_panel", "cessa-laravel (QR generado desde el panel)"
         BOT_TELEGRAM = "bot_telegram", "bot-telegram (pago QR por Telegram)"
+        KIOSCO = "kiosco", "cajero automático (kiosco de autoservicio)"
 
     # El canal sale del alias (la web y el bot usan la misma API key): CESSA-WEB- lo genera el
-    # cliente en la web, CESSA-ADMIN- el panel de administración de la web, CESSA-BOT- el bot.
+    # cliente en la web, CESSA-ADMIN- el panel de administración de la web, CESSA-BOT- el bot,
+    # CESSA-KIO- las pantallas de autoservicio (apps.kiosco, dentro de este mismo gateway).
     PREFIJO_BOT_TELEGRAM = "CESSA-BOT-"
     PREFIJO_PANEL_WEB = "CESSA-ADMIN-"
+    PREFIJO_KIOSCO = "CESSA-KIO-"
 
     @classmethod
     def origen_de_alias(cls, alias: str) -> str:
         if alias.startswith(cls.PREFIJO_BOT_TELEGRAM):
             return cls.Origen.BOT_TELEGRAM
+        if alias.startswith(cls.PREFIJO_KIOSCO):
+            return cls.Origen.KIOSCO
         if alias.startswith(cls.PREFIJO_PANEL_WEB):
             return cls.Origen.CESSA_LARAVEL_PANEL
         return cls.Origen.CESSA_LARAVEL_WEB

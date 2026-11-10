@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     "apps.auditoria",
     "apps.cobranza",
     "apps.facturacion_externa",
+    "apps.kiosco",
 ]
 
 MIDDLEWARE = [
@@ -106,6 +107,10 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
+    # Solo las vistas que lo piden (apps/kiosco/permissions.py: ConsultasPorKiosco).
+    "DEFAULT_THROTTLE_RATES": {
+        "kiosco_consulta": env("KIOSCO_CONSULTAS_POR_MINUTO", default="30/min"),
+    },
 }
 
 SIMPLE_JWT = {
@@ -206,6 +211,39 @@ SIP_CALLBACK_REENVIOS = dict(
 # Prefijos que se responden 0000 sin reenviar (se miran antes que SIP_CALLBACK_REENVIOS): el bot
 # de Telegram (alias CESSA-BOT-...) no tiene URL pública y detecta el pago consultando a SIP.
 SIP_CALLBACK_SIN_REENVIO = env.list("SIP_CALLBACK_SIN_REENVIO", default=["CESSA-BOT-"])
+
+# Pantallas táctiles de autoservicio (apps/kiosco). Cada pantalla tiene su token:
+# KIOSCO_TOKENS="oficina-central=token1,agencia-norte=token2". Sin tokens no atiende ninguna.
+KIOSCO_TOKENS = dict(
+    par.strip().split("=", 1) for par in env("KIOSCO_TOKENS", default="").split(",") if "=" in par
+)
+# Redes desde las que se acepta una pantalla (además del token). Nunca internet.
+KIOSCO_REDES = env.list("KIOSCO_REDES", default=["10.0.0.0/8", "127.0.0.1/32"])
+# Vigencia del QR en pantalla, como el bot (después se da de baja en SIP).
+KIOSCO_MINUTOS_QR = env.int("KIOSCO_MINUTOS_QR", default=5)
+# Barra de avisos de cortes (apps/kiosco/avisos.py). Programados: API interna de cortes (header
+# Authorization con el token, sin "Bearer"; su certificado es de Cloudflare Origin CA: VERIFY con la
+# ruta al .pem, como COBRANZAS_BANCO_VERIFY). Emergencias (y respaldo de los programados): la
+# página de inicio de la web. Las dos vacías = sin barra.
+KIOSCO_CORTES_API_URL = env("KIOSCO_CORTES_API_URL", default="")
+KIOSCO_CORTES_API_TOKEN = env("KIOSCO_CORTES_API_TOKEN", default="")
+KIOSCO_CORTES_API_VERIFY = env("KIOSCO_CORTES_API_VERIFY", default="true")
+KIOSCO_AVISOS_URL = env("KIOSCO_AVISOS_URL", default="https://cessa.com.bo/")
+KIOSCO_AVISOS_MINUTOS = env.int("KIOSCO_AVISOS_MINUTOS", default=10)
+# Fotos del carrusel de la web (protector de pantalla y fondo): cada cuánto se relee la lista.
+KIOSCO_GALERIA_MINUTOS = env.int("KIOSCO_GALERIA_MINUTOS", default=60)
+# Correo y celular registrados en "Actualizar Datos" de cessa-laravel, para mandar la factura
+# (ej. https://cessa.com.bo/api/gateway/clientes/{nro_cliente}/contacto, con X-Api-Key =
+# API_KEY_CESSA_LARAVEL). Vacío = el cliente solo puede escribir el correo en la pantalla.
+KIOSCO_CONTACTO_URL = env("KIOSCO_CONTACTO_URL", default="")
+# Envío de la factura por WhatsApp: API de notificaciones de CESSA (Evolution API, solo texto),
+# ej. http://10.1.1.45:3006/api/v1/notifications/text con header x-api-key. Vacío = sin WhatsApp.
+KIOSCO_WHATSAPP_URL = env("KIOSCO_WHATSAPP_URL", default="")
+KIOSCO_WHATSAPP_API_KEY = env("KIOSCO_WHATSAPP_API_KEY", default="")
+CELERY_BEAT_SCHEDULE["revisar-pagos-kiosco"] = {
+    "task": "apps.kiosco.tasks.revisar_pagos_kiosco",
+    "schedule": 60.0,
+}
 
 # Horario operativo dentro del cual un cajero puede abrir su Caja sin
 # intervención de un supervisor/administrador (ver apps/cobranza/horario.py).

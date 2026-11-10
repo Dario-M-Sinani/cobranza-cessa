@@ -77,6 +77,52 @@ Del lado `cessa-laravel`: `App\Services\Cobranzas\CobranzasGatewayClient`
 `.env`: `COBRANZAS_GATEWAY_BASE_URL`/`COBRANZAS_GATEWAY_API_KEY`) es el único
 punto que hay que apuntar a la URL real de este backend una vez desplegado.
 
+## Kiosco de autoservicio (`apps/kiosco`)
+
+Pantalla táctil en la red interna donde el cliente escribe **solo su N° de cliente**, ve su
+nombre y su deuda, elige hasta qué mes pagar (siempre desde el más antiguo) y paga con QR.
+Mismas reglas que la web y el bot: los N comprobantes más antiguos, subtotal > 0 y hasta
+Bs 50.000, sin QR a las 23:59, QR de 5 minutos.
+
+```
+Pantalla (red interna, SIN internet) ──► gateway /kiosco/ y /api/kiosco/  (solo 10.x + token)
+                                            ├─► SIP: genera el QR, consulta estado, da de baja
+                                            └─► api-cobranzas: deuda y factura (cajero QRWEB)
+SIP ── aviso de pago ──► test01 /api/externo/sip/ (callback único que ya existe) ──► gateway
+```
+
+- La pantalla **solo habla con el gateway**. El gateway pide el QR a SIP y factura.
+- Pago detectado por el primero que llegue: el aviso de SIP (alias `CESSA-KIO-`, se confirma
+  contra SIP, nunca se cree el aviso), la pantalla preguntando cada 2,5 s, o la tarea
+  `revisar_pagos_kiosco` (cada 60 s, por si la pantalla se cerró).
+- Como nadie reintenta por el kiosco, la tarea reintenta la factura con las reglas de la web y el
+  bot (5 intentos; rechazo definitivo no; caja cerrada no gasta intentos). Después siguen el
+  reintento de las 02:00, las alertas y los botones del panel, como cualquier pago web.
+- En el panel y el reporte Excel el canal es **"Kiosco"**.
+- `/api/kiosco/` **no** está bajo `/api/externo/` porque test01 publica `/prod/api/externo/`.
+  Además cada llamada exige IP de `KIOSCO_REDES` (X-Real-IP de nginx) y un token por pantalla.
+- **Comprobante impreso** sin diálogo: con la factura emitida se imprime el ticket (mismos datos
+  que `ComprobanteTicketController` de la web, con el QR del SIAT); si la factura demora, una
+  constancia de pago con el código para ventanilla. Una reimpresión por pago. Formatos:
+  `termica80`, `termica58`, `carta` o `ninguna`. Pendiente: envío por correo.
+- **Barra de cortes** arriba: los cortes programados y de emergencia de la página de inicio de
+  cessa.com.bo (`apps/kiosco/avisos.py`). Los lee el gateway cada 10 min; la pantalla no sale a
+  internet. Si la web no responde, siguen los últimos leídos. Más limpio a futuro: un endpoint
+  JSON en cessa-laravel en vez de leer el JSON de la página (Inertia).
+
+Endpoints (header `X-Kiosco-Token`): `GET /api/kiosco/avisos/`, `GET /api/kiosco/clientes/<nro>/`,
+`POST /api/kiosco/qr/` `{nro_cliente, cantidad}`, `GET /api/kiosco/qr/<alias>/`,
+`POST /api/kiosco/qr/<alias>/cancelar/`, `GET /api/kiosco/qr/<alias>/comprobante/`.
+
+**Poner una pantalla:**
+1. Agregar `nombre=token` a `KIOSCO_TOKENS` y reiniciar gunicorn.
+2. En el nginx del puerto 8443: `location /kiosco/ { proxy_pass http://127.0.0.1:8002; ... }` (como `/api/`).
+3. En la PC de la pantalla, la impresora (térmica o grande) como **predeterminada de Windows**, con
+   el tamaño de papel correcto en sus preferencias.
+4. Chrome en modo kiosco con impresión silenciosa (acceso directo / inicio automático):
+   `chrome.exe --kiosk --kiosk-printing --disable-pinch --overscroll-history-navigation=0 "https://10.1.1.88:8443/kiosco/?k=<token>&impresion=termica80"`
+   La página guarda el token y el formato y los quita de la URL.
+
 ## Endpoints
 
 Autenticación JWT (`simplejwt`):

@@ -60,6 +60,9 @@ class EstadoTransaccionQR:
     monto: Decimal | None
     numero_orden_originante: str | None
     id_qr: str | None
+    # Quién pagó, según SIP (mismo dato que trae el aviso de pago). Vacío si SIP no lo manda.
+    nombre_pagador: str = ""
+    documento_pagador: str = ""
 
 
 class MC4ClientError(Exception):
@@ -140,17 +143,23 @@ class SipMC4Client(MC4ClientInterface):
         body = self._post_autenticado("/api/v1/estadoTransaccion", {"alias": alias}, operacion="consultar estado")
         objeto = body["objeto"]
 
+        try:
+            fecha_procesamiento = (
+                datetime.fromisoformat(objeto["fechaProcesamiento"]) if objeto.get("fechaProcesamiento") else None
+            )
+        except (TypeError, ValueError):
+            # El formato de la fecha no está documentado; un formato distinto no puede tapar un pago.
+            fecha_procesamiento = None
+
         return EstadoTransaccionQR(
-            alias=objeto["alias"],
-            estado=objeto["estadoActual"],
-            fecha_procesamiento=(
-                datetime.fromisoformat(objeto["fechaProcesamiento"])
-                if objeto.get("fechaProcesamiento")
-                else None
-            ),
-            monto=Decimal(str(objeto["monto"])) if "monto" in objeto else None,
+            alias=objeto.get("alias") or alias,
+            estado=str(objeto.get("estadoActual") or "").upper(),
+            fecha_procesamiento=fecha_procesamiento,
+            monto=Decimal(str(objeto["monto"])) if objeto.get("monto") is not None else None,
             numero_orden_originante=objeto.get("numeroOrdenOriginante"),
             id_qr=objeto.get("idQr"),
+            nombre_pagador=str(objeto.get("nombreCliente") or "").strip(),
+            documento_pagador=str(objeto.get("documentoCliente") or "").strip(),
         )
 
     def _obtener_token(self, forzar_refresco: bool = False) -> str:
