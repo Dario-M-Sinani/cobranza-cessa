@@ -27,7 +27,10 @@ def pantalla(request):
     `?k=...`, la página lo guarda en el navegador y lo manda en cada llamada a /api/kiosco/."""
     if not ip_permitida(ip_cliente(request)):
         return HttpResponseForbidden("Solo red interna.")
-    return render(request, "kiosco/pantalla.html", {"logo": _logo_base64()})
+    respuesta = render(request, "kiosco/pantalla.html", {"logo": _logo_base64()})
+    # Que la pantalla tome siempre la última versión al recargar (textos, teléfonos, recibo).
+    respuesta["Cache-Control"] = "no-store"
+    return respuesta
 
 
 class _KioscoView(APIView):
