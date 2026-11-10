@@ -232,12 +232,6 @@ KIOSCO_AVISOS_URL = env("KIOSCO_AVISOS_URL", default="https://cessa.com.bo/")
 KIOSCO_AVISOS_MINUTOS = env.int("KIOSCO_AVISOS_MINUTOS", default=10)
 # Fotos del carrusel de la web (protector de pantalla y fondo): cada cuánto se relee la lista.
 KIOSCO_GALERIA_MINUTOS = env.int("KIOSCO_GALERIA_MINUTOS", default=60)
-# Momento cívico: a esta hora (del servidor, America/La_Paz) la pantalla muestra la bandera, pide
-# ponerse de pie y suena el himno. Vacío = apagado. El audio (mp3) lo pone una persona en el
-# servidor; sin archivo se muestra la bandera KIOSCO_HIMNO_SEGUNDOS_SIN_AUDIO segundos.
-KIOSCO_HIMNO_HORA = env("KIOSCO_HIMNO_HORA", default="12:00")
-KIOSCO_HIMNO_ARCHIVO = env("KIOSCO_HIMNO_ARCHIVO", default="")
-KIOSCO_HIMNO_SEGUNDOS_SIN_AUDIO = env.int("KIOSCO_HIMNO_SEGUNDOS_SIN_AUDIO", default=60)
 # Correo y celular registrados en "Actualizar Datos" de cessa-laravel, para mandar la factura
 # (ej. https://cessa.com.bo/api/gateway/clientes/{nro_cliente}/contacto, con X-Api-Key =
 # API_KEY_CESSA_LARAVEL). Vacío = el cliente solo puede escribir el correo en la pantalla.

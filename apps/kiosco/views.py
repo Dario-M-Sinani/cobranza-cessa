@@ -1,8 +1,7 @@
 import base64
-import mimetypes
 from functools import lru_cache
 
-from django.http import FileResponse, HttpResponse, HttpResponseForbidden
+from django.http import HttpResponse, HttpResponseForbidden
 from django.shortcuts import render
 from rest_framework import status
 from rest_framework.response import Response
@@ -10,7 +9,7 @@ from rest_framework.views import APIView
 
 from apps.facturacion_externa.reporte import LOGO
 
-from . import avisos, galeria, himno, services
+from . import avisos, galeria, services
 from .models import PagoKiosco
 from .permissions import ConsultasPorKiosco, EsKiosco, ip_cliente, ip_permitida
 
@@ -45,26 +44,6 @@ class AvisosView(_KioscoView):
 
     def get(self, request):
         return Response({"avisos": avisos.avisos()})
-
-
-class HimnoView(_KioscoView):
-    """GET /api/kiosco/himno/ -- cuándo es el próximo momento cívico (según la hora del servidor)."""
-
-    def get(self, request):
-        return Response({"himno": himno.proximo()})
-
-
-class HimnoAudioView(_KioscoView):
-    """GET /api/kiosco/himno/audio/ -- el audio del himno (el archivo de KIOSCO_HIMNO_ARCHIVO)."""
-
-    def get(self, request):
-        ruta = himno.archivo()
-        if ruta is None:
-            return Response({"error": "No hay audio del himno en el servidor."}, status=status.HTTP_404_NOT_FOUND)
-        tipo = mimetypes.guess_type(ruta.name)[0] or "audio/mpeg"
-        respuesta = FileResponse(ruta.open("rb"), content_type=tipo)
-        respuesta["Cache-Control"] = "private, max-age=86400"
-        return respuesta
 
 
 class GaleriaView(_KioscoView):

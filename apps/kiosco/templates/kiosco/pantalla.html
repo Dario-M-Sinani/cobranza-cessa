@@ -238,26 +238,7 @@
   #protector .ayuda-linea { position: absolute; bottom: 3vh; left: 0; right: 0; text-align: center; font-size: clamp(15px, 2vh, 19px); color: var(--azul-100); }
   #protector .ayuda-linea b { color: var(--ambar-400); }
 
-  /* Momento cívico (12:00, hora del servidor): bandera de Bolivia a pantalla completa, por encima
-     de todo (también de la barra de cortes), y el himno. No se cierra tocando: termina solo. */
-  #himno { position: fixed; inset: 0; z-index: 80; display: none; flex-direction: column; overflow: hidden; cursor: default; }
-  #himno.visible { display: flex; }
-  #himno .franja-bandera { flex: 1; }
-  #himno .rojo { background: #d52b1e; }
-  #himno .amarillo { background: #f9e300; }
-  #himno .verde { background: #007934; }
-  /* Brillo que recorre la bandera, como si flameara. */
-  #himno::after { content: ""; position: absolute; inset: 0; pointer-events: none;
-    background: linear-gradient(100deg, rgba(255,255,255,0) 30%, rgba(255,255,255,.22) 45%, rgba(0,0,0,.10) 60%, rgba(255,255,255,0) 75%);
-    background-size: 250% 100%; animation: flamear 7s ease-in-out infinite; }
-  @keyframes flamear { from { background-position: 120% 0; } to { background-position: -120% 0; } }
-  #himno .mensaje { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 1; text-align: center;
-    background: rgba(0,30,15,.78); color: #fff; border-radius: 28px; padding: 4vh 6vw; box-shadow: 0 20px 60px rgba(0,0,0,.4); max-width: 90vw; }
-  #himno .mensaje h1 { margin: 0; font-size: clamp(36px, 7vh, 76px); font-weight: 900; }
-  #himno .mensaje p { margin: 1.5vh 0 0; font-size: clamp(20px, 3.2vh, 34px); color: #fde68a; font-weight: 700; }
-  #himno .mensaje .nota-musical { font-size: clamp(40px, 7vh, 70px); display: block; margin-bottom: 1vh; animation: latir 1.6s ease-in-out infinite; }
-
-  @media (prefers-reduced-motion: reduce) { .fondo .mancha, .fondo .ondas, #protector .foto, #protector .toca, #himno::after, #himno .nota-musical { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .fondo .mancha, .fondo .ondas, #protector .foto, #protector .toca { animation: none; } }
 
   /* Fondo oscuro (azul CESSA con fotos, como la portada de la web): el blanco encandila en la
      pantalla. Lo que va directo sobre el fondo pasa a texto claro; teclas, tarjetas y QR quedan claros. */
@@ -290,14 +271,6 @@
   <span class="mancha m1"></span><span class="mancha m2"></span><span class="mancha m3"></span><span class="mancha m4"></span>
   <svg class="ondas lenta" viewBox="0 0 2400 200" preserveAspectRatio="none"><path fill="rgba(0,76,152,.07)" d="M0 120 C300 60 600 180 1200 120 C1800 60 2100 180 2400 120 V200 H0 Z"/></svg>
   <svg class="ondas" viewBox="0 0 2400 200" preserveAspectRatio="none"><path fill="rgba(0,76,152,.10)" d="M0 140 C200 100 400 180 600 140 C800 100 1000 180 1200 140 C1400 100 1600 180 1800 140 C2000 100 2200 180 2400 140 V200 H0 Z"/><path fill="none" stroke="rgba(255,231,30,.55)" stroke-width="3" d="M0 140 C200 100 400 180 600 140 C800 100 1000 180 1200 140 C1400 100 1600 180 1800 140 C2000 100 2200 180 2400 140"/></svg>
-</div>
-<div id="himno" aria-live="assertive">
-  <div class="franja-bandera rojo"></div><div class="franja-bandera amarillo"></div><div class="franja-bandera verde"></div>
-  <div class="mensaje">
-    <span class="nota-musical" id="himno-icono">🎵</span>
-    <h1 id="himno-titulo">Por favor, pónganse de pie</h1>
-    <p id="himno-texto">Himno a Chuquisaca</p>
-  </div>
 </div>
 <div id="protector">
   <div id="protector-fotos"></div>
@@ -408,10 +381,6 @@
   var FOTO_FONDO_MS = 30000;       // y la del fondo, más despacio
   var FOTOS_FONDO = 3;             // en el fondo van solo algunas
   var GALERIA_MS = 60 * 60000;     // cada cuánto se vuelve a pedir la galería
-  var HIMNO_SYNC_MS = 10 * 60000;  // cada cuánto se vuelve a preguntar al servidor cuánto falta
-  var HIMNO_ESPERA_QR_MS = 6 * 60000;  // con un QR en pantalla se espera hasta esto a que termine
-  var HIMNO_MAX_MS = 8 * 60000;    // tope de seguridad: la pantalla vuelve a funcionar sí o sí
-  var HIMNO_GRACIAS_MS = 6000;     // cuánto queda el "¡Gracias!" al final
   var RESULTADO_MS = 25000;        // la pantalla de resultado se cierra sola
   var SONDEO_MS = 2500;            // cada cuánto se pregunta por el QR
   var MAX_DIGITOS = 10;
@@ -944,71 +913,6 @@
     fotos[(i + 1) % fotos.length].classList.add("activa");
   }
 
-  // ---------------------------------------------------------------- momento cívico (himno)
-  // La hora la pone el servidor (hora de Bolivia): dice cuántos segundos faltan y la pantalla
-  // programa el aviso; cada HIMNO_SYNC_MS se vuelve a preguntar, así no depende del reloj de la PC.
-  // El audio suena sin tocar la pantalla solo si el navegador corre con
-  // --autoplay-policy=no-user-gesture-required (va en el comando de la pantalla).
-  var himno = { temporizador: null, hecho: "", activo: false, audioUrl: null, audio: null, fin: null };
-
-  function bajarAudioHimno() {
-    if (himno.audioUrl) return;
-    fetch(API + "/himno/audio/", { headers: { "X-Kiosco-Token": token } })
-      .then(function (r) { return r.ok ? r.blob() : null; }, function () { return null; })
-      .then(function (blob) { if (blob && blob.size) himno.audioUrl = URL.createObjectURL(blob); });
-  }
-
-  function programarHimno() {
-    api("GET", "/himno/").then(function (datos) {
-      var h = datos.himno;
-      clearTimeout(himno.temporizador);
-      if (!h) return;
-      if (h.audio) bajarAudioHimno();
-      himno.segundosSinAudio = h.segundos_sin_audio || 60;
-      himno.temporizador = setTimeout(function () { iniciarHimno(h.fecha, Date.now()); }, h.segundos_para * 1000);
-    }, function () { /* sin servidor: se queda con lo programado */ });
-  }
-
-  function iniciarHimno(fecha, desde) {
-    if (himno.activo || himno.hecho === fecha) return;
-    // No se corta un pago: con un QR en pantalla se espera a que termine (con tope).
-    if ($("p-qr").classList.contains("activa") && Date.now() - desde < HIMNO_ESPERA_QR_MS) {
-      himno.temporizador = setTimeout(function () { iniciarHimno(fecha, desde); }, 3000);
-      return;
-    }
-    himno.activo = true;
-    himno.hecho = fecha;
-    $("protector").classList.remove("visible");
-    $("himno-icono").textContent = "🎵";
-    $("himno-titulo").textContent = "Por favor, pónganse de pie";
-    $("himno-texto").textContent = "Himno a Chuquisaca";
-    $("himno").classList.add("visible");
-    himno.fin = setTimeout(terminarHimno, HIMNO_MAX_MS);
-
-    var sinAudio = function () { clearTimeout(himno.fin); himno.fin = setTimeout(terminarHimno, himno.segundosSinAudio * 1000); };
-    if (!himno.audioUrl) return sinAudio();
-    himno.audio = new Audio(himno.audioUrl);
-    himno.audio.onended = terminarHimno;
-    himno.audio.onerror = sinAudio;
-    var reproduccion = himno.audio.play();
-    if (reproduccion && reproduccion.catch) reproduccion.catch(sinAudio);  // el navegador no dejó sonar
-  }
-
-  function terminarHimno() {
-    if (!himno.activo) return;
-    clearTimeout(himno.fin);
-    if (himno.audio) { himno.audio.onended = himno.audio.onerror = null; himno.audio.pause(); himno.audio = null; }
-    $("himno-icono").textContent = "🇧🇴";
-    $("himno-titulo").textContent = "¡Gracias!";
-    $("himno-texto").textContent = "Compañía Eléctrica Sucre S.A.";
-    setTimeout(function () {
-      $("himno").classList.remove("visible");
-      himno.activo = false;
-      reiniciarInactividad();
-      programarHimno();  // el de mañana
-    }, HIMNO_GRACIAS_MS);
-  }
-
   // ---------------------------------------------------------------- arranque
   if (!token) {
     mostrar("p-sin-configurar");
@@ -1021,10 +925,6 @@
     setInterval(cargarGaleria, GALERIA_MS);
     setInterval(function () { if ($("protector").classList.contains("visible")) siguienteFoto($("protector-fotos")); }, FOTO_PROTECTOR_MS);
     setInterval(function () { siguienteFoto($("fondo-fotos")); }, FOTO_FONDO_MS);
-    programarHimno();
-    setInterval(function () { if (!himno.activo) programarHimno(); }, HIMNO_SYNC_MS);
-    // ?himno=probar: lo muestra a los 5 segundos, para probar la pantalla y el parlante.
-    if (params.get("himno") === "probar") setTimeout(function () { iniciarHimno("prueba", Date.now()); }, 5000);
   }
 })();
 </script>
