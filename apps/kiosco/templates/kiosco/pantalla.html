@@ -729,12 +729,12 @@
       '<h1>CESSA</h1><p class="c b">COMPAÑÍA ELÉCTRICA SUCRE S.A.</p><p class="c">NIT: 1000831029</p><hr>' +
       '<p class="c b grande">RECIBO DE PAGO</p><p class="c">(no es factura)</p>' +
       '<div class="total"><span>MONTO CANCELADO</span><b>Bs. ' + html(Number(r.total).toFixed(2)) + "</b></div>" +
-      filas([["CLIENTE:", r.nombre], ["N° DE CLIENTE:", r.nro_cliente], ["FECHA DE PAGO:", r.fecha_pago], ["MEDIO:", "Pago con QR"],
+      filas([["RAZÓN SOCIAL:", r.nombre], ["N° DE CLIENTE:", r.nro_cliente], ["FECHA DE PAGO:", r.fecha_pago], ["MEDIO:", "Pago con QR"],
              ["CAJERO AUTOMÁTICO:", r.cajero]]) +
       '<hr><div class="fila b"><span>MESES PAGADOS</span><span>Bs.</span></div>' + meses +
       '<hr class="doble"><div class="fila b"><span>TOTAL</span><span>' + html(Number(r.total).toFixed(2)) + "</span></div><hr>" +
       '<p class="c b">TUS FACTURAS</p><p class="c">Se emiten automáticamente. Puedes descargarlas en la <b>app de CESSA</b> o en la web <b>www.cessa.com.bo</b> con tu <b>N° de cliente</b> y <b>N° de cuenta</b>.</p><hr>' +
-      '<div class="pie">' + filas([["N° de transacción:", r.codigo], ["N° de orden:", r.numero_orden]]) +
+      '<div class="pie">' + filas([["N° de transacción:", r.codigo]]) +
       "<p>Consultas: (591-4) 64-51200 · 72877668 · Emergencias 176</p><p class=\"b\">CESSA, la energía del desarrollo</p><hr><p class=\"dtic\">Departamento de Tecnologías de la Información y Comunicación<br>DTIC-CESSA</p></div>";
   }
 
