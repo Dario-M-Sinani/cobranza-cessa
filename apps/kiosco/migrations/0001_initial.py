@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('facturacion_externa', '0008_alter_solicitudliquidacion_origen'),
+        ('facturacion_externa', '0009_alter_solicitudliquidacion_origen'),
     ]
 
     operations = [
