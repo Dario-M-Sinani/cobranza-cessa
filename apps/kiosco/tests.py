@@ -780,3 +780,48 @@ class TestTareaPeriodica:
 
 def test_origen_del_alias():
     assert SolicitudLiquidacion.origen_de_alias("CESSA-KIO-20261109101010-AB12") == SolicitudLiquidacion.Origen.KIOSCO
+
+
+@pytest.mark.django_db
+class TestHimno:
+    def _a_las(self, monkeypatch, hora, minuto, segundo=0):
+        from zoneinfo import ZoneInfo
+
+        from . import himno
+
+        momento = datetime(2026, 11, 10, hora, minuto, segundo, tzinfo=ZoneInfo("America/La_Paz"))
+        monkeypatch.setattr(himno.timezone, "now", lambda: momento)
+
+    def test_antes_del_mediodia_es_hoy_en_hora_de_bolivia(self, settings, monkeypatch):
+        settings.KIOSCO_HIMNO_HORA = "12:00"
+        self._a_las(monkeypatch, 11, 30)
+        h = _cliente().get("/api/kiosco/himno/", **INTERNA).json()["himno"]
+        assert h["fecha"] == "2026-11-10" and h["segundos_para"] == 30 * 60
+
+    def test_en_el_minuto_del_himno_todavia_es_hoy(self, settings, monkeypatch):
+        settings.KIOSCO_HIMNO_HORA = "12:00"
+        self._a_las(monkeypatch, 12, 0, 40)
+        h = _cliente().get("/api/kiosco/himno/", **INTERNA).json()["himno"]
+        assert h["fecha"] == "2026-11-10" and h["segundos_para"] == 0
+
+    def test_pasado_el_mediodia_es_manana(self, settings, monkeypatch):
+        settings.KIOSCO_HIMNO_HORA = "12:00"
+        self._a_las(monkeypatch, 15, 0)
+        h = _cliente().get("/api/kiosco/himno/", **INTERNA).json()["himno"]
+        assert h["fecha"] == "2026-11-11" and h["segundos_para"] == 21 * 3600
+
+    def test_apagado(self, settings):
+        settings.KIOSCO_HIMNO_HORA = ""
+        assert _cliente().get("/api/kiosco/himno/", **INTERNA).json() == {"himno": None}
+
+    def test_audio(self, settings, tmp_path):
+        settings.KIOSCO_HIMNO_ARCHIVO = str(tmp_path / "himno.mp3")
+        assert _cliente().get("/api/kiosco/himno/audio/", **INTERNA).status_code == 404
+        assert _cliente().get("/api/kiosco/himno/", **INTERNA).json()["himno"]["audio"] is False
+
+        (tmp_path / "himno.mp3").write_bytes(b"ID3-audio")
+        r = _cliente().get("/api/kiosco/himno/audio/", **INTERNA)
+        assert r.status_code == 200 and r["Content-Type"] == "audio/mpeg"
+        assert b"".join(r.streaming_content) == b"ID3-audio"
+        assert _cliente().get("/api/kiosco/himno/", **INTERNA).json()["himno"]["audio"] is True
+        assert _cliente().get("/api/kiosco/himno/audio/", HTTP_X_REAL_IP="10.10.20.5").status_code in (401, 403)

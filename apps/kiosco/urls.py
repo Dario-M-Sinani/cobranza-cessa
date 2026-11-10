@@ -12,12 +12,16 @@ from .views import (
     FotoView,
     GaleriaView,
     GenerarQrView,
+    HimnoAudioView,
+    HimnoView,
     ReciboView,
 )
 
 # Bajo /api/kiosco/ y NO bajo /api/externo/: test01 publica /prod/api/externo/ a internet.
 urlpatterns = [
     path("avisos/", AvisosView.as_view(), name="kiosco-avisos"),
+    path("himno/", HimnoView.as_view(), name="kiosco-himno"),
+    path("himno/audio/", HimnoAudioView.as_view(), name="kiosco-himno-audio"),
     path("galeria/", GaleriaView.as_view(), name="kiosco-galeria"),
     path("galeria/<int:id_foto>/", FotoView.as_view(), name="kiosco-foto"),
     path("clientes/<str:nro_cliente>/", ClienteView.as_view(), name="kiosco-cliente"),
