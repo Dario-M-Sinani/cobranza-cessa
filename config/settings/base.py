@@ -130,6 +130,24 @@ SIMPLE_JWT = {
 # Celery / Redis
 CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default="redis://localhost:6379/0")
+
+# Caché. Por defecto, en memoria de cada proceso (como siempre). Para compartirla entre los procesos
+# de gunicorn y Celery (token de api-cobranzas, tope de consultas a SIP del QR) poner CACHE_URL con un
+# Redis ("redis://localhost:6379/2"). OJO: en la .88 conviven test y prod; cada uno necesita su propia
+# base de Redis (o su CACHE_KEY_PREFIX), si no comparten el token de api-cobranzas y uno paga con el
+# del otro.
+CACHE_URL = env("CACHE_URL", default="locmem")
+CACHES = {
+    "default": (
+        {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+        if CACHE_URL == "locmem"
+        else {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": CACHE_URL,
+            "KEY_PREFIX": env("CACHE_KEY_PREFIX", default=""),
+        }
+    )
+}
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"

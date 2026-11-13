@@ -264,6 +264,55 @@ def verificar_pago(transaccion: TransaccionQR) -> TransaccionQR:
     return transaccion
 
 
+CONSULTA_QR_CADA_SEGUNDOS = 3  # la pantalla pregunta seguido; a SIP no se le consulta más que esto
+
+
+def consultar_qr_ahora(transaccion: TransaccionQR) -> TransaccionQR:
+    """La tarjeta del QR en el mostrador pregunta por el pago: si sigue esperando, se consulta a SIP
+    en el momento (sin esperar a la tarea de cada minuto), como mucho una vez cada pocos segundos por
+    QR. Con la fila bloqueada, para no confirmar dos veces si la tarea corre a la vez."""
+    from django.core.cache import cache
+
+    if transaccion.estado != TransaccionQR.Estado.PENDIENTE_CONFIRMACION:
+        return transaccion
+    if not cache.add(f"qr:consulta:{transaccion.pk}", 1, CONSULTA_QR_CADA_SEGUNDOS):
+        return transaccion
+    with transaction.atomic():
+        bloqueada = TransaccionQR.objects.select_for_update().get(pk=transaccion.pk)
+        return verificar_pago(bloqueada)
+
+
+class AnulacionQRError(Exception):
+    pass
+
+
+@transaction.atomic
+def anular_qr(transaccion: TransaccionQR, usuario) -> TransaccionQR:
+    """Anula un QR que el cliente no pagó (como dar_de_baja del kiosco): primero se inhabilita en SIP
+    y después se vuelve a consultar. Si justo pagó, queda PAGADO con su factura en vez de anulado:
+    nunca se anula un QR por el que entró plata. Sin confirmación de SIP no se anula."""
+    transaccion = TransaccionQR.objects.select_for_update().get(pk=transaccion.pk)
+    if transaccion.estado not in (TransaccionQR.Estado.GENERADO, TransaccionQR.Estado.PENDIENTE_CONFIRMACION):
+        raise AnulacionQRError(f"El QR ya está {transaccion.get_estado_display().lower()}.")
+    cliente = get_mc4_client()
+    try:
+        cliente.inhabilitar_qr(_alias(transaccion))
+    except MC4ClientError:
+        pass  # si SIP ya lo había dado de baja (o ya está pagado) también responde con error
+    try:
+        estado = cliente.consultar_estado(alias=_alias(transaccion))
+    except MC4ClientError as exc:
+        raise AnulacionQRError(f"No se pudo confirmar con el banco que el QR no se pagó. Intenta de nuevo. ({exc})") from exc
+    if estado.estado == EstadoPagoMC4.PAGADO:
+        if transaccion.estado == TransaccionQR.Estado.GENERADO:
+            transaccion.transicionar_estado(TransaccionQR.Estado.PENDIENTE_CONFIRMACION)
+        transaccion.transicionar_estado(TransaccionQR.Estado.PAGADO)
+        crear_factura(transaccion)
+        return transaccion
+    transaccion.transicionar_estado(TransaccionQR.Estado.CANCELADO, usuario=usuario)
+    return transaccion
+
+
 def crear_factura(transaccion: TransaccionQR) -> Factura:
     factura, creada = Factura.objects.get_or_create(transaccion_qr=transaccion)
     if creada:

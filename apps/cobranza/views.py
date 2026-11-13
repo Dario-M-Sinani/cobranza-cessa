@@ -33,7 +33,6 @@ from .models import (
     Factura,
     ImpresionComprobante,
     TransaccionQR,
-    TransicionEstadoInvalida,
 )
 from .serializers import (
     AbrirCajaSerializer,
@@ -51,12 +50,15 @@ from .serializers import (
     TransaccionQRSerializer,
 )
 from .services import (
+    AnulacionQRError,
     DeudaSinSaldoError,
     ErrorFacturacion,
     ErrorGeneracionQR,
     MontoInvalidoError,
     MontoRecibidoInsuficienteError,
     TransaccionEnCursoError,
+    anular_qr,
+    consultar_qr_ahora,
     generar_transaccion_qr,
     registrar_cobro_efectivo,
     registrar_cobro_efectivo_agrupado,
@@ -224,11 +226,21 @@ class TransaccionQRViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vie
 
     @action(detail=True, methods=["post"])
     def cancelar(self, request, pk=None):
+        """Anula el QR en SIP y acá (services.anular_qr). Si el cliente justo pagó, responde el QR
+        PAGADO: la pantalla lo muestra como cobrado en vez de anulado."""
         transaccion = self.get_object()
         try:
-            transaccion.transicionar_estado(TransaccionQR.Estado.CANCELADO, usuario=request.user)
-        except TransicionEstadoInvalida as exc:
+            transaccion = anular_qr(transaccion, request.user)
+        except AnulacionQRError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(TransaccionQRSerializer(transaccion).data)
+
+    @action(detail=True, methods=["get"])
+    def estado(self, request, pk=None):
+        """La tarjeta del QR pregunta cada pocos segundos: si sigue esperando, se consulta a SIP en
+        el momento (services.consultar_qr_ahora). Devuelve el QR con su estado y su factura."""
+        transaccion = consultar_qr_ahora(self.get_object())
+        transaccion.refresh_from_db()
         return Response(TransaccionQRSerializer(transaccion).data)
 
     @action(detail=True, methods=["post"])
