@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models, transaction
@@ -21,6 +23,8 @@ class Deuda(models.Model):
     # nro_comprobante, etc. por ítem, no solo el total) -- mismo motivo por
     # el que cessa-laravel tiene `Recibo::debt_items`.
     items_snapshot = models.JSONField(default=list, blank=True, encoder=DjangoJSONEncoder)
+    # Cuenta, dirección, medidor, categoría y estado del suministro al consultar (solo para mostrar).
+    datos_cliente = models.JSONField(default=dict, blank=True)
     fecha_consulta = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -152,6 +156,10 @@ class CobroEfectivo(models.Model):
     grupo = models.ForeignKey(
         "CobroAgrupado", on_delete=models.PROTECT, null=True, blank=True, related_name="cobros"
     )
+    # Pagado con otro documento en vez de billetes (apps/cobranza/formas_pago.py): cheque,
+    # depósito, tarjeta... {"ente_id", "ente", "banco_id", "banco", "numero", "fecha_registro",
+    # "fecha_vencimiento"}. Vacío = efectivo. Se factura con /pagar-otro-documento.
+    documento = models.JSONField(default=dict, blank=True)
     creado_en = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -188,6 +196,8 @@ class Factura(models.Model):
         PENDIENTE = "pendiente", "Pendiente"
         ENVIADO = "enviado", "Enviado"
         ERROR = "error", "Error"
+        # Anulada por supervisor/admin (apps/cobranza/anulacion.py): no se manda ni cuenta en totales.
+        ANULADO = "anulado", "Anulada"
 
     # Origen 0..1 de exactamente un tipo (constraint abajo): puede haber
     # cobros ya confirmados (QR pagado, o efectivo) sin facturar todavía
@@ -213,6 +223,11 @@ class Factura(models.Model):
     intentos = models.PositiveIntegerField(default=0)
     error = models.TextField(blank=True, default="")
     comprobante_pdf = models.BinaryField(null=True, blank=True)
+    anulada_en = models.DateTimeField(null=True, blank=True)
+    anulada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="facturas_anuladas"
+    )
+    motivo_anulacion = models.CharField(max_length=255, blank=True, default="")
 
     class Meta:
         constraints = [
@@ -231,6 +246,41 @@ class Factura(models.Model):
 
     def __str__(self):
         return f"Factura {self.numero_factura or '(sin número)'} - {self.origen}"
+
+
+def abrir_caja_en_siic(cajero, agencia_sigla: str, monto_inicial: Decimal | None, descripcion: str = "") -> dict:
+    """Abre la caja del día de `cajero` en la Nest de cobranzas (y con ella en el SIIC) y devuelve los
+    campos de Caja que salen de ahí. Sin CAJAS_POR_CAJERA, o para un usuario local, no hace nada.
+
+    Si la Nest ya tiene abierta la caja de hoy de la cajera (la abrió en otra sesión, o se cayó algo a
+    mitad de camino), se adopta esa en vez de fallar."""
+    monto = Decimal(monto_inicial or 0)
+    if not settings.CAJAS_POR_CAJERA or getattr(cajero, "origen", "") != "nest":
+        return {"monto_inicial": monto}
+    if not (agencia_sigla or "").strip():
+        raise CajaOperacionInvalida("Elige la agencia donde vas a cobrar.")
+
+    from services.cobranzas_banco_client import CajeraCobranzasClient, CobranzasBancoError
+
+    cliente = CajeraCobranzasClient(cajero)
+    try:
+        try:
+            abierta = cliente.aperturar_caja(agencia_sigla.strip(), monto, descripcion)
+        except CobranzasBancoError as exc:
+            if "ya cuenta con una caja abierta" not in str(exc):
+                raise
+            abierta = {}
+        caja = cliente.caja_del_dia() or {}
+    except CobranzasBancoError as exc:
+        raise CajaOperacionInvalida(f"El SIIC no abrió la caja: {exc}") from exc
+    if str(caja.get("estado") or "ABIERTA").upper() != "ABIERTA":
+        raise CajaOperacionInvalida("Tu caja de hoy en el SIIC ya está cerrada: no se puede abrir otra el mismo día.")
+    return {
+        "caja_codigo": str(caja.get("dispositivo_id") or abierta.get("caja_codigo") or ""),
+        "agencia_sigla": str(caja.get("agencia_sigla") or abierta.get("agencia_sigla") or agencia_sigla),
+        "agencia_descripcion": str(caja.get("agencia_descripcion") or "")[:120],
+        "monto_inicial": Decimal(str(caja.get("monto_inicial") or monto)),
+    }
 
 
 class CajaOperacionInvalida(Exception):
@@ -273,6 +323,16 @@ class Caja(models.Model):
         blank=True,
         related_name="cajas_cerradas",
     )
+    # Caja del SIIC (CAJAS_POR_CAJERA): la abre la Nest de cobranzas con el usuario de la cajera.
+    # Vacíos en las cajas solo locales (usuarios locales o con la opción apagada).
+    caja_codigo = models.CharField(max_length=20, blank=True, default="")
+    agencia_sigla = models.CharField(max_length=20, blank=True, default="")
+    agencia_descripcion = models.CharField(max_length=120, blank=True, default="")
+    monto_inicial = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Cierre en el SIIC: los cortes de billetes que contó la cajera ({"corte_bs_200": 3, ...}) y lo que
+    # devolvió el cierre (arqueo, recaudado y diferencia en Bs). Lo ve solo supervisor/admin.
+    arqueo_cortes = models.JSONField(default=dict, blank=True)
+    cierre_siic = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ["-creada_en"]
@@ -294,12 +354,19 @@ class Caja(models.Model):
 
     @classmethod
     @transaction.atomic
-    def abrir(cls, cajero, usuario, motivo: str = "") -> "Caja":
+    def abrir(
+        cls, cajero, usuario, motivo: str = "", agencia_sigla: str = "", monto_inicial: Decimal | None = None
+    ) -> "Caja":
         """Abre una nueva Caja para `cajero`. Flujo normal: `usuario` es el
         propio cajero, dentro del horario operativo. Fuera de horario, solo
         un supervisor/administrador puede abrirla (nunca el cajero
         directamente), indicando `motivo` -- que queda auditado en
-        AperturaCajaFueraDeHorario."""
+        AperturaCajaFueraDeHorario.
+
+        Con CAJAS_POR_CAJERA y una cajera que vino de la Nest, primero se abre
+        su caja del día en el SIIC (con `agencia_sigla` y `monto_inicial`,
+        siempre con el usuario de la cajera aunque la abra un supervisor). Si
+        la Nest la rechaza, no se abre nada acá."""
         from apps.usuarios.models import Usuario
 
         if cls.objects.filter(cajero=cajero, estado=cls.Estado.ABIERTA).exists():
@@ -316,8 +383,9 @@ class Caja(models.Model):
                 "Abrir caja fuera del horario operativo requiere indicar un motivo."
             )
 
+        siic = abrir_caja_en_siic(cajero, agencia_sigla, monto_inicial, motivo)
         caja = cls.objects.create(
-            cajero=cajero, estado=cls.Estado.ABIERTA, abierta_en=timezone.now(), abierta_por=usuario
+            cajero=cajero, estado=cls.Estado.ABIERTA, abierta_en=timezone.now(), abierta_por=usuario, **siic
         )
         LogAuditoria.objects.create(
             usuario=usuario, accion="Caja: abierta", entidad_afectada=f"Caja:{caja.pk}"
@@ -351,6 +419,12 @@ class Caja(models.Model):
 
         if self.estado != Caja.Estado.CERRADA:
             raise CajaOperacionInvalida("Solo se puede reabrir una caja cerrada.")
+        if self.cierre_siic:
+            # El SIIC no reabre una caja cerrada (en la app Java había que pedirlo a sistemas): reabrirla
+            # solo acá dejaría cobrar sin poder facturar.
+            raise CajaOperacionInvalida(
+                "Esta caja ya se cerró en el SIIC y no se puede reabrir. Si hace falta, pedir a DTIC que la reabra allá."
+            )
         if usuario.rol not in (Usuario.Rol.SUPERVISOR, Usuario.Rol.ADMIN):
             raise CajaOperacionInvalida("Solo un supervisor o administrador puede reabrir una caja.")
         if self.cerrada_por_id == usuario.pk:
@@ -401,3 +475,29 @@ class AperturaCajaFueraDeHorario(models.Model):
 
     def __str__(self):
         return f"Apertura fuera de horario Caja#{self.caja_id} ({self.creado_en:%Y-%m-%d %H:%M})"
+
+
+class ImpresionComprobante(models.Model):
+    """Cada vez que se imprime el comprobante interno de un cobro del panel. La cajera lo
+    imprime una sola vez (al cobrar); reimprimir queda para supervisor/admin y se audita
+    (pedido de 2026-11-12: "no se puede reimprimir"). La factura del SIIC no pasa por acá."""
+
+    class Tipo(models.TextChoices):
+        EFECTIVO = "efectivo", "Efectivo"
+        QR = "qr", "QR"
+        GRUPO = "grupo", "Efectivo de varios clientes"
+
+    tipo = models.CharField(max_length=10, choices=Tipo.choices)
+    objeto_id = models.PositiveBigIntegerField()
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="impresiones_comprobante"
+    )
+    es_reimpresion = models.BooleanField(default=False)
+    creado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-creado_en"]
+        indexes = [models.Index(fields=["tipo", "objeto_id"])]
+
+    def __str__(self):
+        return f"{'Reimpresión' if self.es_reimpresion else 'Impresión'} {self.tipo}:{self.objeto_id}"

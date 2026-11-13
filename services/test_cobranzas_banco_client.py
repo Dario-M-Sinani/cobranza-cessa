@@ -133,6 +133,7 @@ class TestFlujoDeCobro:
 
     def test_asegurar_caja_abierta_apertura_si_no_existe(self):
         cliente = _cliente()
+        cliente.caja_codigo = ""  # sin COBRANZAS_BANCO_CAJA_CODIGO, aunque el entorno (local.env) lo defina
         with patch("services.cobranzas_banco_client.requests.post") as mock_post, \
                 patch("services.cobranzas_banco_client.requests.request") as mock_request:
             mock_post.return_value = _response({"access_token": "tok"})

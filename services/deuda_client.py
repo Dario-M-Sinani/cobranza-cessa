@@ -34,7 +34,7 @@ avisar para agregarlo.
 from __future__ import annotations
 
 import abc
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 
 import requests
@@ -75,6 +75,8 @@ class ResultadoConsultaDeuda:
     codigo_externo_cliente: str
     nombre_cliente: str
     items: list[ItemDeuda]
+    # Lo que el SIIC sabe del suministro: cuenta, dirección, medidor, categoría, estado (para la cajera).
+    datos_cliente: dict = field(default_factory=dict)
 
     @property
     def monto_total(self) -> Decimal:
@@ -96,6 +98,11 @@ class ClienteNoEncontradoError(DeudaClientError):
 class DeudaClientInterface(abc.ABC):
     @abc.abstractmethod
     def consultar_deuda(self, codigo_externo: str) -> ResultadoConsultaDeuda: ...
+
+    def consultar_por_cuenta(self, zona: str, manzano: str, correlativo: str) -> ResultadoConsultaDeuda:
+        """N° de cuenta (zona-manzano-correlativo), como la app Java. El SIIC acepta esos tres
+        parámetros en lugar de `nro_cliente`."""
+        raise ClienteNoEncontradoError("La búsqueda por N° de cuenta no está disponible con esta fuente.")
 
 
 def _reparar_codificacion(valor):
@@ -143,10 +150,17 @@ class SiicDeudaClient(DeudaClientInterface):
         self.timeout = timeout
 
     def consultar_deuda(self, codigo_externo: str) -> ResultadoConsultaDeuda:
+        return self._consultar(codigo_externo, {"nro_cliente": codigo_externo, "ver_deuda": "si"})
+
+    def consultar_por_cuenta(self, zona: str, manzano: str, correlativo: str) -> ResultadoConsultaDeuda:
+        cuenta = f"{zona}-{manzano}-{correlativo}"
+        return self._consultar(cuenta, {"zona": zona, "manzano": manzano, "correlativo": correlativo, "ver_deuda": "si"})
+
+    def _consultar(self, codigo_externo: str, params: dict) -> ResultadoConsultaDeuda:
         try:
             response = requests.get(
                 f"{self.base_url}/v1/consulta/cliente",
-                params={"nro_cliente": codigo_externo, "ver_deuda": "si"},
+                params=params,
                 # SIN "Bearer": el token va tal cual en el header, igual que
                 # CessaApiService del lado Laravel.
                 headers={"Authorization": self.token},
@@ -181,6 +195,11 @@ class CobranzasBancoDeudaClient(DeudaClientInterface):
     def consultar_deuda(self, codigo_externo: str) -> ResultadoConsultaDeuda:
         status, body = consultar_cliente_via_cobranzas({"nro_cliente": codigo_externo, "ver_deuda": "si"})
         return _resultado_desde_respuesta(codigo_externo, status, body)
+
+    def consultar_por_cuenta(self, zona: str, manzano: str, correlativo: str) -> ResultadoConsultaDeuda:
+        params = {"zona": zona, "manzano": manzano, "correlativo": correlativo, "ver_deuda": "si"}
+        status, body = consultar_cliente_via_cobranzas(params)
+        return _resultado_desde_respuesta(f"{zona}-{manzano}-{correlativo}", status, body)
 
 
 def consultar_cliente_via_cobranzas(params: dict) -> tuple[int, dict]:
@@ -292,10 +311,24 @@ def _resultado_desde_respuesta(codigo_externo: str, status_code: int, body: dict
         for item in body.get("deuda", [])
     ]
 
+    def texto(clave: str) -> str:
+        return str(body.get(clave) or "").strip()
+
+    cuenta = ""
+    if texto("zona") and texto("manzano") and texto("correlativo"):
+        cuenta = f"{texto('zona').zfill(2)}-{texto('manzano').zfill(3)}-{texto('correlativo').zfill(5)}"
     return ResultadoConsultaDeuda(
-        codigo_externo_cliente=codigo_externo,
+        # Buscando por cuenta, el número de cliente sale de la respuesta.
+        codigo_externo_cliente=texto("nro_cliente") or codigo_externo,
         nombre_cliente=body.get("nombre", ""),
         items=items,
+        datos_cliente={
+            "nro_cuenta": cuenta,
+            "direccion": texto("direccion"),
+            "nro_medidor": texto("nro_medidor"),
+            "categoria": texto("categoria_descripcion"),
+            "estado": texto("estado_descripcion"),
+        },
     )
 
 

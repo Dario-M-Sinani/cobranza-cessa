@@ -18,6 +18,10 @@ class TokenObtainPairConRolSerializer(TokenObtainPairSerializer):
         token["activo"] = user.activo
         token["username"] = user.username
         token["solo_consulta"] = settings.PANEL_SOLO_CONSULTA
+        token["nombre"] = user.get_full_name() or user.username
+        # Su caja es una caja del SIIC (se abre con agencia y monto inicial): CAJAS_POR_CAJERA.
+        token["caja_siic"] = bool(settings.CAJAS_POR_CAJERA and user.origen == "nest")
+        token["origen"] = user.origen
         return token
 
 

@@ -354,6 +354,108 @@ class LumenCobranzasBancoClient(CobranzasBancoClientInterface):
         return str(error) if error else response.text
 
 
+class CajeraCobranzasClient(LumenCobranzasBancoClient):
+    """Mismo contrato, pero con el token de la cajera (CAJAS_POR_CAJERA): sus cobros entran a SU caja
+    del SIIC, con su código de operador y sus lotes, como en la app Java de cobranzas. La caja la abre
+    ella (con agencia y monto inicial) desde el panel: acá nunca se abre sola."""
+
+    def __init__(self, usuario, **kwargs):
+        super().__init__(**kwargs)
+        self.usuario = usuario
+        self.username = usuario.username
+
+    def _obtener_token(self, forzar_refresco: bool = False) -> str:
+        from apps.usuarios.nest import NestNoDisponible, SesionNestVencida, refrescar, token_de
+
+        try:
+            return refrescar(self.usuario) if forzar_refresco else token_de(self.usuario)
+        except SesionNestVencida as exc:
+            raise CobranzasBancoAuthError(str(exc)) from exc
+        except NestNoDisponible as exc:
+            raise CobranzasBancoRequestError(f"Nest de cobranzas sin respuesta: {exc}") from exc
+
+    def caja_del_dia(self) -> dict | None:
+        """La caja de hoy de la cajera en la Nest (con agencia y dispositivo del SIIC), o None."""
+        response = self._request_autenticado("get", "/v1/cajas/existe")
+        if response.status_code == 404:
+            return None
+        if not response.ok:
+            raise CobranzasBancoRequestError(f"verificar caja: {self._extraer_error(response)}")
+        return response.json() or {}
+
+    def asegurar_caja_abierta(self) -> None:
+        caja = self.caja_del_dia()
+        if caja is None:
+            raise CobranzasBancoRequestError(
+                f"{self.username} no tiene caja abierta hoy en el SIIC: tiene que abrirla desde el panel."
+            )
+        estado = str(caja.get("estado") or "").upper()
+        if estado and estado != "ABIERTA":
+            raise CobranzasBancoRequestError(
+                f"La caja de hoy de {self.username} (caja {caja.get('dispositivo_id') or '?'}) está {estado}."
+            )
+
+    def aperturar_caja(self, agencia_sigla: str, monto_inicial, descripcion: str = "") -> dict:
+        response = self._request_autenticado(
+            "post",
+            "/v1/cajas/aperturar",
+            json={
+                "agencia_sigla": agencia_sigla,
+                "monto_inicial": float(monto_inicial or 0),
+                "descripcion_apertura": descripcion[:255],
+            },
+        )
+        if not response.ok:
+            raise CobranzasBancoRequestError(self._extraer_error(response))
+        return response.json() or {}
+
+    def agencias(self, entidad_financiera_id: int) -> list[dict]:
+        return self._json("get", f"/v1/entidades-financieras/{int(entidad_financiera_id)}/agencias", "agencias") or []
+
+    # --- Cierre de caja (como cierreCaja.xhtml de la app Java) ---------------------------------
+
+    def catalogo(self, nombre: str) -> list[dict]:
+        """`entes` (efectivo, cheque, depósito, QR...) o `bancos` del SIIC: [{id, descripcion}]."""
+        return self._json("get", f"/v1/{nombre}", nombre) or []
+
+    def entes_cierre(self) -> list[dict]:
+        """Documentos de la caja de hoy (TCNN3051): el efectivo declarado, los cheques, los QR..."""
+        return self._json("get", "/v1/cajas/entes-cierre-caja", "documentos del cierre") or []
+
+    def actualizar_efectivo(self, moneda: str, cortes: dict[str, int]) -> dict:
+        """Declara el efectivo contado por cortes (`corte_bs_200`... o `corte_sus_100`...)."""
+        return self._json("put", "/v1/cajas/entes-cierre-caja/actualizar-efectivo", None, json={"moneda": moneda, **cortes})
+
+    def guardar_documento(self, datos: dict, modificar: bool = False) -> dict:
+        ruta = "modificar" if modificar else "agregar"
+        return self._json("post", f"/v1/cajas/entes-cierre-caja/{ruta}", None, json=datos)
+
+    def datos_cierre(self) -> dict:
+        """Arqueo declarado (efectivo, cheques, otros valores) contra lo recaudado, y la diferencia en Bs."""
+        return self._json("get", "/v1/cajas/datos-cierre", "datos del cierre") or {}
+
+    def cerrar_caja(self, descripcion: str = "") -> dict:
+        return self._json("post", "/v1/cajas/cerrar", None, json={"descripcion_cierre": descripcion[:255]}) or {}
+
+    def reporte_cierre(self, fecha_aaaammdd: str) -> bytes:
+        response = self._request_autenticado("get", "/v1/cajas/reporte-cierre", params={"fecha": fecha_aaaammdd})
+        if not response.ok:
+            raise CobranzasBancoRequestError(self._extraer_error(response))
+        return response.content
+
+    def anular_transaccion(self, uuid: str) -> dict:
+        """Solo el mismo día y con un usuario que no sea CAJA (supervisora o sistemas): el SIIC anula
+        el lote y la deuda vuelve a quedar pendiente."""
+        return self._json("post", f"/v1/transacciones/{uuid}/anular", None) or {}
+
+    def _json(self, metodo: str, ruta: str, que: str | None, **kwargs):
+        response = self._request_autenticado(metodo, ruta, **kwargs)
+        if not response.ok:
+            error = self._extraer_error(response)
+            raise CobranzasBancoRequestError(f"{que}: {error}" if que else error)
+        return response.json()
+
+
 def get_cobranzas_banco_client() -> CobranzasBancoClientInterface:
     """Punto único de resolución del cliente configurado (real o fake)."""
     from django.utils.module_loading import import_string

@@ -1,0 +1,68 @@
+# Backend completo en la PC, sin tocar la .88 ni el AS400:
+#   docker compose -f local/docker-compose.yml up -d
+# Postgres local con la misma estructura que prod (sale de las migraciones) y
+# MC4/SIP, deuda y api-cobranzas simulados (services/fakes.py).
+# El panel: en cobranza-cessa-frontend, DEV_PROXY_TARGET=http://127.0.0.1:8001 y npm run dev.
+name: cobranza-local
+
+x-backend: &backend
+  build:
+    context: ..
+    dockerfile: local/Dockerfile
+  image: cobranza-local-backend
+  volumes:
+    - ..:/app
+  env_file: local.env
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_started
+    siic:
+      condition: service_started
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: cobranza_cessa
+      POSTGRES_USER: cobranza
+      POSTGRES_PASSWORD: cobranza
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cobranza -d cobranza_cessa"]
+      interval: 2s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+
+  # SIIC falso (deuda, facturas pagadas, consumo y PDF) con el mismo formato que la API Nest.
+  siic:
+    image: python:3.12-slim
+    command: python /local/siic_simulado.py
+    environment:
+      SIIC_SIMULADO_ESTADO: /local/.siic_simulado.json
+      PYTHONUNBUFFERED: "1"
+      TZ: America/La_Paz
+    volumes:
+      - .:/local
+    ports:
+      - "127.0.0.1:6012:6012"
+      - "127.0.0.1:6014:6014"  # Nest de cobranzas simulada (login de cajeros, cajas, transacciones)
+
+  web:
+    <<: *backend
+    command: sh -c "python manage.py migrate --noinput && python manage.py runserver 0.0.0.0:8001"
+    ports:
+      - "127.0.0.1:8001:8001"
+
+  celery:
+    <<: *backend
+    command: celery -A config worker -B -l info --concurrency 2
+
+volumes:
+  pgdata:

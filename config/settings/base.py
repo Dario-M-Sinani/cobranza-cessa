@@ -53,6 +53,14 @@ MIDDLEWARE = [
 # (apps/usuarios/middleware.py) y el frontend los oculta.
 PANEL_SOLO_CONSULTA = env.bool("PANEL_SOLO_CONSULTA", default=False)
 
+# Login: primero contra la Nest de cobranzas (solo con CAJAS_POR_CAJERA, ver más abajo); después
+# los usuarios locales. Un usuario que vino de la Nest no tiene clave local, así que nunca entra por
+# el segundo.
+AUTHENTICATION_BACKENDS = [
+    "apps.usuarios.nest.NestBackend",
+    "django.contrib.auth.backends.ModelBackend",
+]
+
 ROOT_URLCONF = "config.urls"
 
 TEMPLATES = [
@@ -190,6 +198,16 @@ COBRANZAS_BANCO_DOCUMENTO_BANCO_IDS = {
     "sip_bisa": env("COBRANZAS_BANCO_DOCUMENTO_BANCO_ID_BISA", default=""),
     "bnb": env("COBRANZAS_BANCO_DOCUMENTO_BANCO_ID_BNB", default=""),
 }
+
+# Caja propia por cajera (como la app Java de cobranzas): cada usuario entra al panel con su usuario
+# de la Nest de cobranzas (COBRANZAS_BANCO_BASE_URL, mismo cliente OAuth), abre SU caja en el SIIC y
+# sus cobros se facturan con su token y su caja. El usuario COBRANZAS_BANCO_USERNAME queda solo para
+# lo que no cobra una persona (pagos web, bot y kiosco). Apagado: todo se factura con ese usuario,
+# como antes, y el login es solo contra los usuarios locales.
+CAJAS_POR_CAJERA = env.bool("CAJAS_POR_CAJERA", default=False)
+# Clave Fernet (base64 de 32 bytes) para guardar cifrados los tokens de la Nest de cada usuario.
+# Vacía: se deriva de SECRET_KEY (cambiar SECRET_KEY obliga a volver a iniciar sesión, nada más).
+CREDENCIALES_NEST_CLAVE = env("CREDENCIALES_NEST_CLAVE", default="")
 
 # API keys de servicios externos autorizados a llamar apps.facturacion_externa
 # (ver apps/facturacion_externa/permissions.py) -- hoy solo cessa-laravel.

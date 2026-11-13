@@ -12,3 +12,7 @@ venv/
 
 # Token local del front de deuda (tools/deuda-test-front)
 .token
+
+# Desarrollo local (local/docker-compose.yml)
+local/.siic_simulado.json
+celerybeat-schedule*

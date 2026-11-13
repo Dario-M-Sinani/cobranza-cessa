@@ -11,9 +11,16 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.auditoria.models import LogAuditoria
-from services.cobranzas_banco_client import CobranzasBancoError, construir_detalle, get_cobranzas_banco_client
+from services.cobranzas_banco_client import (
+    CajeraCobranzasClient,
+    CobranzasBancoError,
+    construir_detalle,
+    construir_documento,
+    get_cobranzas_banco_client,
+)
 from services.mc4_client import EstadoPagoMC4, MC4ClientError, SolicitudQR, get_mc4_client
 
+from . import formas_pago
 from .models import Caja, CobroAgrupado, CobroEfectivo, Deuda, Factura, TransaccionQR
 
 QR_VENCIMIENTO_DIAS = 1  # SIP solo acepta fecha (no hora) de vencimiento.
@@ -49,6 +56,46 @@ class DeudaSinSaldoError(Exception):
 class MontoInvalidoError(Exception):
     """El monto a cobrar (adelanto) no es válido: tiene que ser mayor a 0 y
     no puede superar el total de la deuda consultada."""
+
+
+class CajaRequeridaError(MontoInvalidoError):
+    """Con CAJAS_POR_CAJERA, una cajera de la Nest no puede cobrar sin su caja abierta: el cobro se
+    factura en SU caja del SIIC. Hereda de MontoInvalidoError para salir como 400 en las mismas vistas."""
+
+
+def _cliente_para(usuario):
+    """Con qué usuario de la Nest se factura un cobro del panel."""
+    if settings.CAJAS_POR_CAJERA and getattr(usuario, "origen", "") == "nest":
+        return CajeraCobranzasClient(usuario)
+    return get_cobranzas_banco_client()
+
+
+def _documento_qr(transaccion: TransaccionQR) -> dict:
+    if not settings.COBRANZAS_BANCO_DOCUMENTO_ENTE_ID:
+        raise CobranzasBancoError('Falta configurar COBRANZAS_BANCO_DOCUMENTO_ENTE_ID (ente "pago por QR" del SIIC).')
+    return construir_documento(
+        nro_cliente=transaccion.deuda.cliente.codigo_externo,
+        monto=transaccion.monto_snapshot,
+        moneda="BOB",
+        numero_documento=f"TXQR{transaccion.pk}",  # hasta 20 caracteres; rastreable desde el panel
+        fecha_pago=transaccion.actualizado_en,
+        # El QR del mostrador lo cobra SIP/BISA (services/mc4_client.py).
+        banco_id=settings.COBRANZAS_BANCO_DOCUMENTO_BANCO_IDS.get("sip_bisa") or None,
+    )
+
+
+def _validar_tope(usuario, total: Decimal) -> None:
+    try:
+        formas_pago.validar_tope(usuario, total)
+    except formas_pago.FormaPagoInvalida as exc:
+        raise MontoInvalidoError(str(exc)) from exc
+
+
+def _caja_para_cobrar(usuario):
+    caja = Caja.objects.filter(cajero=usuario, estado=Caja.Estado.ABIERTA).first()
+    if caja is None and settings.CAJAS_POR_CAJERA and getattr(usuario, "origen", "") == "nest":
+        raise CajaRequeridaError("Abre tu caja antes de cobrar.")
+    return caja
 
 
 def _alias(transaccion: TransaccionQR) -> str:
@@ -138,6 +185,7 @@ def generar_transaccion_qr(
     resumen de cierre de caja (`reportes.resumen_caja`) incluya también los
     QR generados en el turno, no solo el efectivo."""
     monto_a_cobrar, items_cobrados = resolver_seleccion(deuda, monto, cantidad_comprobantes)
+    _validar_tope(usuario, monto_a_cobrar)
 
     ya_en_curso = TransaccionQR.objects.filter(
         deuda__cliente=deuda.cliente,
@@ -146,7 +194,7 @@ def generar_transaccion_qr(
     if ya_en_curso:
         raise TransaccionEnCursoError(f"El cliente {deuda.cliente} ya tiene un QR de cobro pendiente.")
 
-    caja_abierta = Caja.objects.filter(cajero=usuario, estado=Caja.Estado.ABIERTA).first()
+    caja_abierta = _caja_para_cobrar(usuario)
     transaccion = TransaccionQR.objects.create(
         deuda=deuda, usuario=usuario, monto_snapshot=monto_a_cobrar, items_cobrados=items_cobrados, caja=caja_abierta
     )
@@ -233,6 +281,7 @@ def registrar_cobro_efectivo(
     monto_recibido: Decimal,
     monto_a_cobrar: Decimal | None = None,
     cantidad_comprobantes: int | None = None,
+    documento: dict | None = None,
 ) -> CobroEfectivo:
     """Registra un cobro en efectivo. A diferencia del QR no depende de una
     pasarela externa: se confirma al instante, así que la Factura se crea
@@ -247,8 +296,14 @@ def registrar_cobro_efectivo(
     Se vincula a la Caja abierta del cajero si tiene una (Épica E) -- no es
     obligatorio todavía: si el cajero no abrió caja, el cobro igual se
     registra con `caja=None`. Endurecer esto a "obligatorio" queda como
-    decisión pendiente de negocio, no técnica."""
+    decisión pendiente de negocio, no técnica.
+
+    `documento`: pagado con cheque, depósito, tarjeta... (ya validado por
+    formas_pago.validar_documento). Cubre el monto exacto: no hay vuelto."""
     monto_final, items_cobrados = resolver_seleccion(deuda, monto_a_cobrar, cantidad_comprobantes)
+    _validar_tope(usuario, monto_final)
+    if documento:
+        monto_recibido = monto_final
 
     ya_en_curso = TransaccionQR.objects.filter(
         deuda__cliente=deuda.cliente,
@@ -262,7 +317,7 @@ def registrar_cobro_efectivo(
             f"El monto recibido (Bs. {monto_recibido}) es menor al monto a cobrar (Bs. {monto_final})."
         )
 
-    caja_abierta = Caja.objects.filter(cajero=usuario, estado=Caja.Estado.ABIERTA).first()
+    caja_abierta = _caja_para_cobrar(usuario)
 
     cobro = CobroEfectivo.objects.create(
         deuda=deuda,
@@ -272,9 +327,13 @@ def registrar_cobro_efectivo(
         items_cobrados=items_cobrados,
         monto_recibido=monto_recibido,
         vuelto=monto_recibido - monto_final,
+        documento=documento or {},
     )
     LogAuditoria.objects.create(
-        usuario=usuario, accion="CobroEfectivo: registrado", entidad_afectada=f"CobroEfectivo:{cobro.pk}"
+        usuario=usuario,
+        accion=(f"CobroEfectivo: registrado con {documento['ente']} {documento['numero']}" if documento
+                else "CobroEfectivo: registrado"),
+        entidad_afectada=f"CobroEfectivo:{cobro.pk}",
     )
 
     factura, creada = Factura.objects.get_or_create(cobro_efectivo=cobro)
@@ -288,7 +347,7 @@ def registrar_cobro_efectivo(
 
 @transaction.atomic
 def registrar_cobro_efectivo_agrupado(
-    usuario, monto_recibido: Decimal, selecciones: list[tuple[Deuda, int | None]]
+    usuario, monto_recibido: Decimal, selecciones: list[tuple[Deuda, int | None]], documento: dict | None = None
 ) -> CobroAgrupado:
     """Un solo pago en efectivo para varios clientes (`selecciones` = [(deuda, cantidad de
     comprobantes o None = todo)]). Todo o nada: si una selección no es válida no se
@@ -312,12 +371,16 @@ def registrar_cobro_efectivo_agrupado(
         resueltas.append((deuda, monto, items))
 
     total = sum((monto for _, monto, _ in resueltas), Decimal("0"))
+    _validar_tope(usuario, total)
+    if documento:
+        # Un documento (ej. un cheque) para varios clientes: cada cliente se factura con su parte.
+        monto_recibido = total
     if monto_recibido < total:
         raise MontoRecibidoInsuficienteError(
             f"El monto recibido (Bs. {monto_recibido}) es menor al total a cobrar (Bs. {total})."
         )
 
-    caja_abierta = Caja.objects.filter(cajero=usuario, estado=Caja.Estado.ABIERTA).first()
+    caja_abierta = _caja_para_cobrar(usuario)
     grupo = CobroAgrupado.objects.create(
         usuario=usuario, caja=caja_abierta, monto_total=total, monto_recibido=monto_recibido,
         vuelto=monto_recibido - total,
@@ -325,7 +388,7 @@ def registrar_cobro_efectivo_agrupado(
     for deuda, monto, items in resueltas:
         cobro = CobroEfectivo.objects.create(
             deuda=deuda, usuario=usuario, caja=caja_abierta, grupo=grupo, monto_snapshot=monto,
-            items_cobrados=items, monto_recibido=monto, vuelto=Decimal("0"),
+            items_cobrados=items, monto_recibido=monto, vuelto=Decimal("0"), documento=documento or {},
         )
         factura = Factura.objects.create(cobro_efectivo=cobro)
         LogAuditoria.objects.create(
@@ -366,7 +429,7 @@ def enviar_factura_a_siic(factura: Factura) -> Factura:
     El cobro ya se confirmó antes de llegar acá -- si esto falla, la
     Factura queda en ERROR con el motivo, nunca se pierde el hecho de que
     el cliente ya pagó."""
-    if factura.estado_envio == Factura.EstadoEnvio.ENVIADO:
+    if factura.estado_envio in (Factura.EstadoEnvio.ENVIADO, Factura.EstadoEnvio.ANULADO):
         return factura  # ya se envió -- idempotente, no se vuelve a pagar.
 
     deuda = factura.origen.deuda
@@ -381,7 +444,8 @@ def enviar_factura_a_siic(factura: Factura) -> Factura:
         )
         return factura
 
-    cliente = get_cobranzas_banco_client()
+    # Con CAJAS_POR_CAJERA, la cajera que cobró (su token y su caja del SIIC); si no, el usuario compartido.
+    cliente = _cliente_para(factura.origen.usuario)
 
     try:
         cliente.asegurar_caja_abierta()
@@ -392,7 +456,15 @@ def enviar_factura_a_siic(factura: Factura) -> Factura:
             factura.save(update_fields=["cobranzas_uuid"])
 
         detalle = construir_detalle(items_a_pagar, nro_cliente_fallback=deuda.cliente.codigo_externo)
-        cliente.pagar_transaccion_propia(uuid, detalle)
+        if factura.transaccion_qr_id and isinstance(cliente, CajeraCobranzasClient):
+            # En la caja de la cajera el QR va como documento "pago por QR": si fuera con /pagar a secas,
+            # en el arqueo del cierre contaría como efectivo que la cajera no tiene en el cajón.
+            cliente.pagar_transaccion(uuid, detalle, _documento_qr(factura.transaccion_qr))
+        elif factura.cobro_efectivo_id and factura.cobro_efectivo.documento:
+            # Cobrado con cheque, depósito, tarjeta...: en el arqueo figura como ese documento.
+            cliente.pagar_transaccion(uuid, detalle, formas_pago.documento_para_siic(factura.cobro_efectivo))
+        else:
+            cliente.pagar_transaccion_propia(uuid, detalle)
 
         comprobante_pdf = cliente.obtener_comprobante_pdf(uuid)
 

@@ -13,12 +13,17 @@ class DeudaSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Deuda
-        fields = ["id", "cliente", "monto", "fecha_consulta", "items"]
+        fields = ["id", "cliente", "monto", "fecha_consulta", "items", "datos_cliente"]
         read_only_fields = fields
 
 
 class ConsultarDeudaSerializer(serializers.Serializer):
+    """N° de cliente, o N° de cuenta (zona-manzano-correlativo: "05-059-07421" o "0505907421")."""
+
     codigo_externo = serializers.CharField(max_length=50)
+
+    def validate_codigo_externo(self, valor):
+        return valor.strip()
 
 
 class FacturaSerializer(serializers.ModelSerializer):
@@ -78,7 +83,7 @@ class CobroEfectivoSerializer(serializers.ModelSerializer):
         model = CobroEfectivo
         fields = [
             "id", "deuda", "usuario", "caja", "monto_snapshot", "monto_recibido",
-            "vuelto", "creado_en", "factura", "items_cobrados",
+            "vuelto", "creado_en", "factura", "items_cobrados", "documento",
         ]
         read_only_fields = fields
 
@@ -90,6 +95,8 @@ class RegistrarCobroEfectivoSerializer(serializers.Serializer):
     # coincida con alguno de esos totales. Sin ninguno, la deuda completa.
     monto_a_cobrar = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
     cantidad_comprobantes = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+    # Cheque, depósito, tarjeta... (apps/cobranza/formas_pago.py); sin él, efectivo.
+    documento = serializers.JSONField(required=False, allow_null=True)
 
 
 class CajaSerializer(serializers.ModelSerializer):
@@ -101,7 +108,8 @@ class CajaSerializer(serializers.ModelSerializer):
         model = Caja
         fields = [
             "id", "cajero", "estado", "creada_en", "abierta_en", "abierta_por",
-            "cerrada_en", "cerrada_por",
+            "cerrada_en", "cerrada_por", "caja_codigo", "agencia_sigla", "agencia_descripcion",
+            "monto_inicial",
         ]
         read_only_fields = fields
 
@@ -114,6 +122,11 @@ class AbrirCajaSerializer(serializers.Serializer):
     # rol está autenticado.
     cajero_id = serializers.IntegerField(required=False)
     motivo = serializers.CharField(required=False, allow_blank=True, default="")
+    # Caja del SIIC (CAJAS_POR_CAJERA): agencia de la entidad de la cajera y efectivo con que empieza.
+    agencia_sigla = serializers.CharField(required=False, allow_blank=True, default="", max_length=20)
+    monto_inicial = serializers.DecimalField(
+        required=False, max_digits=10, decimal_places=2, min_value=0, default=0
+    )
 
 
 class ReabrirCajaSerializer(serializers.Serializer):
@@ -150,3 +163,4 @@ class _SeleccionCobroSerializer(serializers.Serializer):
 class RegistrarCobroAgrupadoSerializer(serializers.Serializer):
     monto_recibido = serializers.DecimalField(max_digits=12, decimal_places=2)
     selecciones = _SeleccionCobroSerializer(many=True, allow_empty=False)
+    documento = serializers.JSONField(required=False, allow_null=True)

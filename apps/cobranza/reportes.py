@@ -32,8 +32,10 @@ def resumen_dashboard(desde: date, hasta: date) -> dict:
 
     qr_pagados = TransaccionQR.objects.filter(
         estado=TransaccionQR.Estado.PAGADO, creado_en__range=(inicio, fin)
+    ).exclude(factura__estado_envio=Factura.EstadoEnvio.ANULADO)
+    cobros_efectivo = CobroEfectivo.objects.filter(creado_en__range=(inicio, fin)).exclude(
+        factura__estado_envio=Factura.EstadoEnvio.ANULADO
     )
-    cobros_efectivo = CobroEfectivo.objects.filter(creado_en__range=(inicio, fin))
 
     qr_agg = qr_pagados.aggregate(cantidad=Count("id"), monto=Sum("monto_snapshot"))
     efectivo_agg = cobros_efectivo.aggregate(cantidad=Count("id"), monto=Sum("monto_snapshot"))
@@ -86,12 +88,15 @@ def resumen_caja(caja: Caja) -> dict:
     fechas, todas las cajas), esto es "el turno de este cajero". Sirve tanto
     para una caja ya cerrada (el cierre en sí) como para una todavía
     abierta (total corrido del turno)."""
-    qr_pagados = TransaccionQR.objects.filter(caja=caja, estado=TransaccionQR.Estado.PAGADO)
+    # Lo anulado por supervisor/admin (apps/cobranza/anulacion.py) no cuenta.
+    qr_pagados = TransaccionQR.objects.filter(caja=caja, estado=TransaccionQR.Estado.PAGADO).exclude(
+        factura__estado_envio=Factura.EstadoEnvio.ANULADO
+    )
     qr_pendientes = TransaccionQR.objects.filter(
         caja=caja,
         estado__in=[TransaccionQR.Estado.GENERADO, TransaccionQR.Estado.PENDIENTE_CONFIRMACION],
     )
-    cobros_efectivo = CobroEfectivo.objects.filter(caja=caja)
+    cobros_efectivo = CobroEfectivo.objects.filter(caja=caja).exclude(factura__estado_envio=Factura.EstadoEnvio.ANULADO)
 
     qr_agg = qr_pagados.aggregate(cantidad=Count("id"), monto=Sum("monto_snapshot"))
     efectivo_agg = cobros_efectivo.aggregate(cantidad=Count("id"), monto=Sum("monto_snapshot"))
