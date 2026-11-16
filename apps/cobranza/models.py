@@ -305,6 +305,10 @@ class Caja(models.Model):
     class Estado(models.TextChoices):
         ABIERTA = "abierta", "Abierta"
         CERRADA = "cerrada", "Cerrada"
+        # Caja del SIIC de un día anterior que nadie cerró: el SIIC trabaja por día y la Nest solo
+        # cierra la de hoy, así que con ella ya no se cobra ni se cierra desde el panel (la cierra
+        # Sistemas en el SIIC). Ver Caja.marcar_sin_cerrar().
+        SIN_CERRAR = "sin_cerrar", "Quedó sin cerrar"
 
     cajero = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="cajas"
@@ -352,6 +356,35 @@ class Caja(models.Model):
                 )
         super().save(*args, **kwargs)
 
+    def es_de_otro_dia(self) -> bool:
+        """Caja del SIIC abierta en un día anterior: ya no sirve para cobrar (el SIIC es por día)."""
+        return bool(
+            self.caja_codigo and self.estado == Caja.Estado.ABIERTA
+            and timezone.localdate(self.abierta_en) < timezone.localdate()
+        )
+
+    @classmethod
+    def marcar_sin_cerrar(cls, cajero) -> list["Caja"]:
+        """Las cajas del SIIC de `cajero` que quedaron abiertas de otro día pasan a "quedó sin cerrar"
+        (con Auditoría), para que pueda abrir la de hoy y la supervisora las vea."""
+        marcadas = []
+        for caja in cls.objects.filter(cajero=cajero, estado=cls.Estado.ABIERTA).exclude(caja_codigo=""):
+            if not caja.es_de_otro_dia():
+                continue
+            caja.estado = cls.Estado.SIN_CERRAR
+            caja._en_transicion = True
+            try:
+                caja.save(update_fields=["estado"])
+            finally:
+                caja._en_transicion = False
+            LogAuditoria.objects.create(
+                usuario=None,
+                accion=f"Caja: quedó sin cerrar en el SIIC (abierta el {timezone.localdate(caja.abierta_en):%d/%m/%Y})",
+                entidad_afectada=f"Caja:{caja.pk}",
+            )
+            marcadas.append(caja)
+        return marcadas
+
     @classmethod
     @transaction.atomic
     def abrir(
@@ -369,6 +402,7 @@ class Caja(models.Model):
         la Nest la rechaza, no se abre nada acá."""
         from apps.usuarios.models import Usuario
 
+        cls.marcar_sin_cerrar(cajero)
         if cls.objects.filter(cajero=cajero, estado=cls.Estado.ABIERTA).exists():
             raise CajaOperacionInvalida(f"{cajero} ya tiene una caja abierta.")
 
@@ -501,3 +535,26 @@ class ImpresionComprobante(models.Model):
 
     def __str__(self):
         return f"{'Reimpresión' if self.es_reimpresion else 'Impresión'} {self.tipo}:{self.objeto_id}"
+
+
+class CotizacionDolar(models.Model):
+    """Una fila por día: la cotización del dólar en el SIIC (ADMINDTA.COTIZA, la que usa el cierre de
+    caja) y la oficial del BCB, con cuándo se leyó cada una. Constancia para la supervisora y base
+    de las alertas (apps/cobranza/cotizacion.py)."""
+
+    fecha = models.DateField(unique=True)
+    siic = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True)
+    siic_leida_en = models.DateTimeField(null=True, blank=True)
+    siic_error = models.TextField(blank=True, default="")
+    bcb = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True)
+    bcb_vigencia = models.CharField(max_length=120, blank=True, default="")
+    bcb_fuente = models.CharField(max_length=30, blank=True, default="")
+    bcb_leida_en = models.DateTimeField(null=True, blank=True)
+    bcb_error = models.TextField(blank=True, default="")
+    actualizada_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-fecha"]
+
+    def __str__(self):
+        return f"Cotización {self.fecha}: SIIC {self.siic} / BCB {self.bcb}"

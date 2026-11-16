@@ -7,6 +7,9 @@ class Usuario(AbstractUser):
         CAJERA = "cajera", "Cajera"
         SUPERVISOR = "supervisor", "Supervisor"
         ADMIN = "admin", "Administrador"
+        # ENTIDAD_FINANCIERA de la Nest: responsable de un banco. Solo consulta a sus cajeros y sus
+        # transacciones (apps/usuarios/autenticacion.py).
+        ENTIDAD = "entidad", "Responsable de entidad"
 
     class Origen(models.TextChoices):
         LOCAL = "local", "Local"

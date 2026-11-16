@@ -149,6 +149,24 @@ class TestCerrar:
         assert r.status_code == 200, r.data
         assert enviadas == [Factura.objects.get(cobro_efectivo=cobro).pk]
 
+    def test_el_arqueo_registra_antes_los_cobros_pendientes(self, caja_siic, cajera_nest, deudas, nest_cierre, monkeypatch):  # noqa: F811
+        """Si no, un cheque recién cobrado no figura en el arqueo hasta que pase la tarea de cada minuto."""
+        cobro = cobranza_services.registrar_cobro_efectivo(deudas[0], cajera_nest, Decimal("100"))
+        enviadas = []
+
+        def enviar(factura):
+            enviadas.append(factura.pk)
+            factura.estado_envio = Factura.EstadoEnvio.ENVIADO
+            factura.save(update_fields=["estado_envio"])
+            return factura
+
+        monkeypatch.setattr(cobranza_services, "enviar_factura_a_siic", enviar)
+        r = _api(cajera_nest).get(f"/api/cajas/{caja_siic.pk}/cierre/")
+
+        assert r.status_code == 200, r.data
+        assert enviadas == [Factura.objects.get(cobro_efectivo=cobro).pk]
+        assert r.data["facturas_pendientes"] == 0
+
     def test_no_cierra_si_una_factura_no_se_pudo_mandar(self, caja_siic, cajera_nest, deudas, nest_cierre, monkeypatch):  # noqa: F811
         cobranza_services.registrar_cobro_efectivo(deudas[0], cajera_nest, Decimal("100"))
         monkeypatch.setattr(cobranza_services, "enviar_factura_a_siic", lambda f: f)

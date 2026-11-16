@@ -1,7 +1,7 @@
 from celery import shared_task
 
 from .models import Factura, TransaccionQR
-from .services import MAX_INTENTOS_AUTOMATICOS_FACTURACION, enviar_factura_a_siic, verificar_pago
+from .services import MAX_INTENTOS_AUTOMATICOS_FACTURACION, enviar_factura_con_candado, verificar_pago
 
 
 @shared_task
@@ -28,7 +28,7 @@ def enviar_facturas_pendientes():
     que ya agotaron el tope quedan para revisión manual (ver
     `services.reintentar_facturacion`, sin tope). Mismo patrón poll-based
     que `verificar_transacciones_pendientes` -- ver `services.
-    enviar_factura_a_siic` para el detalle de cada envío."""
+    enviar_factura_con_candado` / `enviar_factura_a_siic` para el detalle de cada envío."""
     ids = list(
         Factura.objects.filter(estado_envio=Factura.EstadoEnvio.PENDIENTE).values_list("id", flat=True)
     ) + list(
@@ -37,4 +37,12 @@ def enviar_facturas_pendientes():
         ).values_list("id", flat=True)
     )
     for factura_id in ids:
-        enviar_factura_a_siic(Factura.objects.get(pk=factura_id))
+        enviar_factura_con_candado(factura_id)  # si la cajera la está enviando justo ahora, se saltea
+
+
+@shared_task
+def leer_cotizacion_bcb():
+    """Cada hora: el tipo de cambio oficial del BCB de hoy (referencia para la cotización del SIIC)."""
+    from .cotizacion import actualizar_bcb
+
+    actualizar_bcb()

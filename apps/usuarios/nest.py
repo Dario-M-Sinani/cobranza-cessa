@@ -28,6 +28,7 @@ ROLES = {
     "CAJA": Usuario.Rol.CAJERA,
     "COBRANZA": Usuario.Rol.SUPERVISOR,
     "SISTEMAS": Usuario.Rol.ADMIN,
+    "ENTIDAD_FINANCIERA": Usuario.Rol.ENTIDAD,
 }
 
 

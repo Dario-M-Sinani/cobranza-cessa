@@ -389,6 +389,7 @@ USUARIOS_NEST = {
     "SUPERV": (5, "CARMEN ROJAS PAREDES", "COBRANZA", 1, True),
     "SISTEMAS1": (6, "JORGE TORREZ ZURITA", "SISTEMAS", 1, True),
     "CAJABAJA": (7, "PEDRO CHOQUE ARCE", "CAJA", 1, False),
+    "RESPBNB": (8, "ANA GUZMAN ROCA", "ENTIDAD_FINANCIERA", 4, True),  # responsable del BNB
 }
 ENTIDADES = {1: "CESSA", 4: "BANCO NACIONAL DE BOLIVIA"}
 AGENCIAS = {
@@ -566,6 +567,11 @@ class ManejadorCobranzas(Manejador):
             return self._proforma(int(m.group(1)), bool(m.group(2)), q)
         if url.path in ("/v1/entes", "/v1/bancos"):
             return self._json(200, [{"id": k, "descripcion": v} for k, v in (ENTES if url.path == "/v1/entes" else BANCOS).items()])
+        if url.path == "/v1/cotizacion-dolar":
+            # ADMINDTA.COTIZA simulada: SIIC_COTIZACION ("" = todavía sin cargar hoy, para ver la alerta).
+            fecha = q.get("fecha") or f"{datetime.now():%Y%m%d}"
+            valor = os.environ.get("SIIC_COTIZACION", "11.67").strip()
+            return self._json(200, {"fecha": fecha, "cotizacion": f"{Decimal(valor):.4f}" if valor else None})
         if usuario is None:
             return self._no_autenticado()
         if url.path == "/v1/usuarios" or url.path == "/v1/usuarios/caja-aperturada" or re.fullmatch(r"/v1/usuarios/\d+", url.path):
@@ -870,6 +876,8 @@ class ManejadorCobranzas(Manejador):
             dueno = next((u for u, f in USUARIOS_NEST.items() if str(f[0]) == str(q["usuario_id"])), None)
             if dueno is None:
                 return self._json(401, {"error": f"No existe el usuario con ID #{q['usuario_id']}", "code": 401})
+            if rol == "ENTIDAD_FINANCIERA" and USUARIOS_NEST[dueno][3] != USUARIOS_NEST[usuario][3]:
+                return self._json(401, {"error": f"Su rol no cuenta con suficientes permisos para listar las transacciones del usuario con ID #{q['usuario_id']}", "code": 401})
         elif rol == "SISTEMAS":
             dueno = next((u for u, f in USUARIOS_NEST.items() if str(f[0]) == str(q.get("usuario_id"))), usuario)
         else:

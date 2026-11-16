@@ -22,6 +22,7 @@ class TokenObtainPairConRolSerializer(TokenObtainPairSerializer):
         # Su caja es una caja del SIIC (se abre con agencia y monto inicial): CAJAS_POR_CAJERA.
         token["caja_siic"] = bool(settings.CAJAS_POR_CAJERA and user.origen == "nest")
         token["origen"] = user.origen
+        token["entidad_financiera_id"] = user.entidad_financiera_id
         return token
 
 

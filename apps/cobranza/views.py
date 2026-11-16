@@ -59,12 +59,13 @@ from .services import (
     TransaccionEnCursoError,
     anular_qr,
     consultar_qr_ahora,
+    enviar_factura_con_candado,
     generar_transaccion_qr,
     registrar_cobro_efectivo,
     registrar_cobro_efectivo_agrupado,
 )
 from .services import reintentar_facturacion as reintentar_facturacion_servicio
-from . import anulacion, cierre, formas_pago, proformas, reportes_qr
+from . import anulacion, cierre, cotizacion, formas_pago, proformas, reportes_qr
 from .reportes import resumen_caja, resumen_dashboard
 
 
@@ -358,12 +359,26 @@ class FacturaViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
 
     @action(detail=True, methods=["get"])
     def comprobante(self, request, pk=None):
+        """El PDF de la factura del SIIC, para entregarla al cliente (como la app Java, que la
+        imprimía al cobrar). Si todavía no se registró en el SIIC, se registra en el momento en vez
+        de esperar a la tarea de cada minuto."""
         factura = self.get_object()
+        if factura.estado_envio == Factura.EstadoEnvio.ANULADO:
+            return Response({"detail": "Este cobro fue anulado: no tiene factura."}, status=status.HTTP_409_CONFLICT)
+        if factura.comprobante_pdf is None and factura.estado_envio in (
+            Factura.EstadoEnvio.PENDIENTE, Factura.EstadoEnvio.ERROR
+        ):
+            enviar_factura_con_candado(factura.pk)
+            factura.refresh_from_db()
         if factura.comprobante_pdf is None:
-            return Response(
-                {"detail": "Todavía no hay comprobante para esta factura."}, status=status.HTTP_404_NOT_FOUND
-            )
-        return HttpResponse(bytes(factura.comprobante_pdf), content_type="application/pdf")
+            if factura.estado_envio == Factura.EstadoEnvio.ERROR:
+                detalle = f"La factura no se pudo registrar en el SIIC: {factura.error or 'error desconocido'}. Avisa a tu supervisora."
+            else:
+                detalle = "La factura se está registrando en el SIIC: intenta otra vez en unos segundos."
+            return Response({"detail": detalle}, status=status.HTTP_409_CONFLICT)
+        respuesta = HttpResponse(bytes(factura.comprobante_pdf), content_type="application/pdf")
+        respuesta["Content-Disposition"] = f'inline; filename="factura-{factura.numero_factura or factura.pk}.pdf"'
+        return respuesta
 
 
 class CobroEfectivoViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
@@ -437,6 +452,7 @@ class CajaViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gen
     def get_queryset(self):
         qs = Caja.objects.select_related("cajero", "abierta_por", "cerrada_por").order_by("-creada_en")
         if self.request.user.rol == Usuario.Rol.CAJERA:
+            Caja.marcar_sin_cerrar(self.request.user)  # la de otro día no se muestra como "tu caja de hoy"
             qs = qs.filter(cajero=self.request.user)
         # Nota: supervisor y admin ven todas las cajas por ahora. El filtro
         # de "sus cajas" por sucursal para el supervisor queda pendiente --
@@ -838,6 +854,16 @@ class ComprobantesDelDiaView(APIView):
         return factura.numero_factura or factura.get_estado_envio_display()
 
     @staticmethod
+    def _ids(cobros) -> list[int]:
+        """Facturas (no anuladas) de esos cobros, para abrir su PDF del SIIC."""
+        ids = []
+        for c in cobros:
+            factura = getattr(c, "factura", None)
+            if factura is not None and factura.estado_envio != Factura.EstadoEnvio.ANULADO:
+                ids.append(factura.pk)
+        return ids
+
+    @staticmethod
     def _cliente(deuda) -> dict:
         return {"codigo": deuda.cliente.codigo_externo, "nombre": deuda.cliente.nombre}
 
@@ -860,7 +886,7 @@ class ComprobantesDelDiaView(APIView):
             filas.append({
                 "tipo": "efectivo", "id": c.pk, "numero": f"COMP-EF-{c.pk}", "fecha": c.creado_en,
                 "forma_pago": _forma_pago(c), "cajero": c.usuario.username, "monto": c.monto_snapshot,
-                "clientes": [self._cliente(c.deuda)], "facturas": [self._factura(c)],
+                "clientes": [self._cliente(c.deuda)], "facturas": [self._factura(c)], "facturas_ids": self._ids([c]),
             })
         grupos = CobroAgrupado.objects.filter(creado_en__date=fecha, **propios).select_related("usuario").prefetch_related(
             "cobros__deuda__cliente", "cobros__factura"
@@ -871,6 +897,7 @@ class ComprobantesDelDiaView(APIView):
                 "tipo": "grupo", "id": g.pk, "numero": f"COMP-GR-{g.pk}", "fecha": g.creado_en,
                 "forma_pago": _forma_pago(cobros[0]) if cobros else "Efectivo", "cajero": g.usuario.username, "monto": g.monto_total,
                 "clientes": [self._cliente(c.deuda) for c in cobros], "facturas": [self._factura(c) for c in cobros],
+                "facturas_ids": self._ids(cobros),
             })
         qrs = TransaccionQR.objects.filter(
             estado=TransaccionQR.Estado.PAGADO, actualizado_en__date=fecha, **propios
@@ -879,7 +906,7 @@ class ComprobantesDelDiaView(APIView):
             filas.append({
                 "tipo": "qr", "id": t.pk, "numero": f"COMP-QR-{t.pk}", "fecha": t.actualizado_en,
                 "forma_pago": "QR", "cajero": t.usuario.username, "monto": t.monto_snapshot,
-                "clientes": [self._cliente(t.deuda)], "facturas": [self._factura(t)],
+                "clientes": [self._cliente(t.deuda)], "facturas": [self._factura(t)], "facturas_ids": self._ids([t]),
             })
 
         impresiones = {}
@@ -934,3 +961,41 @@ class ProformaView(APIView):
             return Response({"detail": "Año o mes inválido."}, status=status.HTTP_400_BAD_REQUEST)
         except proformas.ProformaError as exc:
             return Response({"detail": str(exc)}, status=exc.status)
+
+
+class CotizacionDolarView(APIView):
+    """`GET /api/cotizacion-dolar/`: la cotización de hoy en el SIIC (la que usa el cierre de caja) y la
+    oficial del BCB, con alertas. Cajera, supervisor y admin."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(cotizacion.de_hoy(request.user))
+
+
+class CotizacionDolarHistorialView(APIView):
+    """`GET /api/cotizacion-dolar/historial/?desde=&hasta=` (supervisor/admin): constancia día por día."""
+
+    permission_classes = [IsAuthenticated, EsSupervisorOAdmin]
+
+    def get(self, request):
+        hoy = timezone.localdate()
+        try:
+            desde = datetime.strptime(request.query_params.get("desde") or (hoy.replace(day=1)).isoformat(), "%Y-%m-%d").date()
+            hasta = datetime.strptime(request.query_params.get("hasta") or hoy.isoformat(), "%Y-%m-%d").date()
+        except ValueError:
+            return Response({"detail": "Fechas inválidas (AAAA-MM-DD)."}, status=status.HTTP_400_BAD_REQUEST)
+        if hasta < desde or (hasta - desde).days > 366:
+            return Response({"detail": "Rango inválido (hasta un año)."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"desde": desde, "hasta": hasta, "dias": cotizacion.historial(desde, hasta)})
+
+
+class CotizacionDolarBcbView(APIView):
+    """`POST /api/cotizacion-dolar/releer-bcb/` (supervisor/admin): vuelve a leer la del BCB ahora."""
+
+    permission_classes = [IsAuthenticated, EsSupervisorOAdmin]
+
+    def post(self, request):
+        fila = cotizacion.actualizar_bcb(forzar=True)
+        cotizacion.actualizar_siic(fila, request.user)
+        return Response(cotizacion.estado(fila))

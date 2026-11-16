@@ -261,3 +261,69 @@ class TestTransaccionesDeEntidadYReimpresion:
     def test_la_cajera_no_reimprime_facturas_del_siic(self, db):
         cajera = _usuario_nest("CAJERA1", Usuario.Rol.CAJERA)
         assert _api(cajera).get("/api/transacciones-siic/u-banco/facturas/").status_code == 403
+
+
+def _api_jwt(u):
+    """Con el JWT de verdad (force_authenticate saltaría el límite de apps/usuarios/autenticacion.py)."""
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    c = APIClient()
+    c.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(u).access_token}")
+    return c
+
+
+@pytest.fixture
+def responsable_bnb(db):
+    u = _usuario_nest("RESPBNB", Usuario.Rol.ENTIDAD)
+    u.entidad_financiera_id = 4
+    u.save()
+    return u
+
+
+@pytest.mark.django_db
+class TestResponsableDeEntidad:
+    def test_ve_solo_los_cajeros_de_su_banco(self, responsable_bnb):
+        pedidos = []
+        respuestas = {
+            "/v1/usuarios": [{"id": 4, "username": "CAJABNB", "nombre": "LUIS", "rol": "CAJA", "habilitado": True, "entidad_financiera_id": 4}],
+            "/v1/usuarios/caja-aperturada": [],
+            "/v1/entidades-financieras": [{"id": 1, "descripcion": "CESSA"}, {"id": 4, "descripcion": "BNB"}],
+        }
+
+        def request(self, metodo, ruta, **kwargs):
+            pedidos.append((ruta, kwargs.get("params")))
+            return _respuesta(200, respuestas[ruta])
+
+        with patch.object(CajeraCobranzasClient, "_request_autenticado", autospec=True, side_effect=request):
+            r = _api_jwt(responsable_bnb).get("/api/cajeros/?entidad_financiera_id=1")  # pide otra: se ignora
+        assert r.status_code == 200, r.data
+        assert ("/v1/usuarios", {"entidad_financiera_id": 4}) in pedidos
+        assert r.data["entidades"] == [{"id": 4, "descripcion": "BNB"}]
+
+    def test_transacciones_de_la_entidad_siempre_la_suya(self, responsable_bnb):
+        def request(self, metodo, ruta, **kwargs):
+            if ruta == "/v1/usuarios":
+                assert kwargs["params"] == {"entidad_financiera_id": 4}
+                return _respuesta(200, [])
+            raise AssertionError(ruta)
+
+        with patch.object(CajeraCobranzasClient, "_request_autenticado", autospec=True, side_effect=request):
+            r = _api_jwt(responsable_bnb).get("/api/transacciones-siic/?entidad=1")
+        assert r.status_code == 200, r.data
+
+    @pytest.mark.parametrize("url", [
+        "/api/transacciones-qr/buscar/", "/api/comprobantes/", "/api/cajas/", "/api/dashboard/resumen/",
+        "/api/usuarios/", "/api/auditoria/",
+    ])
+    def test_no_entra_a_cobranza_ni_a_lo_del_panel(self, responsable_bnb, url):
+        r = _api_jwt(responsable_bnb).get(url)
+        assert r.status_code == 403, (url, r.status_code)
+
+    def test_no_crea_cajeros(self, responsable_bnb):
+        assert _api_jwt(responsable_bnb).post("/api/cajeros/", ALTA, format="json").status_code == 403
+
+    def test_cambia_su_contrasena(self, responsable_bnb):
+        parche, _ = _nest({("post", "/v1/cambiar-contrasenia"): _respuesta(200, {})})
+        with parche:
+            r = _api_jwt(responsable_bnb).post("/api/cambiar-contrasena/", {"actual": "local", "nueva": "nueva123"}, format="json")
+        assert r.status_code == 200, r.data

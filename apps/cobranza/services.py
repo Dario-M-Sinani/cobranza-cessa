@@ -92,6 +92,13 @@ def _validar_tope(usuario, total: Decimal) -> None:
 
 
 def _caja_para_cobrar(usuario):
+    # Una caja del SIIC de otro día ya no sirve: el SIIC rechazaría las facturas (no hay caja hoy). No se
+    # marca acá (el cobro corre en una transacción que este error deshace): la marcan abrir() y la lista.
+    for vieja in (c for c in Caja.objects.filter(cajero=usuario, estado=Caja.Estado.ABIERTA) if c.es_de_otro_dia()):
+        raise CajaRequeridaError(
+            f"Tu caja {vieja.caja_codigo} es del {timezone.localdate(vieja.abierta_en):%d/%m/%Y} y quedó sin cerrar. "
+            "Abre la caja de hoy para cobrar y avisa a tu supervisora: la de ese día se cierra en el SIIC."
+        )
     caja = Caja.objects.filter(cajero=usuario, estado=Caja.Estado.ABIERTA).first()
     if caja is None and settings.CAJAS_POR_CAJERA and getattr(usuario, "origen", "") == "nest":
         raise CajaRequeridaError("Abre tu caja antes de cobrar.")
@@ -463,6 +470,17 @@ def reintentar_facturacion(transaccion: TransaccionQR) -> Factura:
 
     factura = crear_factura(transaccion)
     return enviar_factura_a_siic(factura)
+
+
+def enviar_factura_con_candado(factura_id: int) -> Factura | None:
+    """Envía la Factura al SIIC con la fila bloqueada: la tarea periódica, el cierre de caja y la
+    cajera que pide imprimir la factura apenas cobra pueden coincidir, y sin esto los dos crearían
+    su propia transacción en el SIIC. Si otro proceso ya la está enviando, devuelve None (no espera)."""
+    with transaction.atomic():
+        factura = Factura.objects.select_for_update(skip_locked=True).filter(pk=factura_id).first()
+        if factura is None:
+            return None
+        return enviar_factura_a_siic(factura)
 
 
 def enviar_factura_a_siic(factura: Factura) -> Factura:

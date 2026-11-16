@@ -65,6 +65,14 @@ def facturas_pendientes(caja: Caja):
     )
 
 
+def _registrar_pendientes(caja: Caja) -> None:
+    """Manda al SIIC las facturas de la caja que falten (con candado: la tarea puede estar en lo mismo)."""
+    from .services import enviar_factura_con_candado
+
+    for factura_id in list(facturas_pendientes(caja).values_list("id", flat=True)):
+        enviar_factura_con_candado(factura_id)
+
+
 def qr_sin_confirmar(caja: Caja):
     return TransaccionQR.objects.filter(
         caja=caja, estado__in=[TransaccionQR.Estado.GENERADO, TransaccionQR.Estado.PENDIENTE_CONFIRMACION]
@@ -103,6 +111,11 @@ def estado_cierre(caja: Caja, ver_totales: bool) -> dict:
         return base | {"documentos": cerrado.get("documentos", []), "cierre": cerrado}
 
     cliente = _cliente(caja)
+    # Antes de leer el arqueo, los cobros de esta caja que todavía no llegaron al SIIC (los manda la
+    # tarea de cada minuto): si no, los cheques y QR recién cobrados no figuran y el recaudado que ve
+    # la supervisora no cuadra con lo que la cajera tiene en el cajón.
+    _registrar_pendientes(caja)
+    base["facturas_pendientes"] = facturas_pendientes(caja).count()
     documentos = [_documento(f) for f in _siic(cliente.entes_cierre)]
     entes = [e for e in _siic(cliente.catalogo, "entes") if str(e.get("descripcion", "")).upper() not in ENTES_AUTOMATICOS]
     datos = {
@@ -184,16 +197,13 @@ def guardar_documento(caja: Caja, usuario, datos: dict) -> dict:
 
 
 def cerrar_en_siic(caja: Caja, usuario, descripcion: str = "") -> Caja:
-    from .services import enviar_factura_a_siic
-
     _abierta_de(caja, usuario)
     cliente = _cliente(caja)
     if qr_sin_confirmar(caja).exists():
         raise CierreInvalido(
             "Hay QR esperando el pago del cliente en esta caja. Espera la confirmación o anúlalos antes de cerrar."
         )
-    for factura in facturas_pendientes(caja):
-        enviar_factura_a_siic(factura)
+    _registrar_pendientes(caja)
     pendientes = facturas_pendientes(caja).count()
     if pendientes:
         raise CierreInvalido(

@@ -94,8 +94,17 @@ class TestLoginPorNest:
         assert r.status_code == 401
         assert not Usuario.objects.filter(username="CAJERA1").exists()
 
-    def test_rol_de_banco_todavia_no_entra(self):
+    def test_responsable_de_banco_entra_como_entidad(self):
         r, _ = _login(username="resp-bnb", rol="ENTIDAD_FINANCIERA")
+        assert r.status_code == 200, r.data
+        from rest_framework_simplejwt.tokens import AccessToken
+
+        datos = AccessToken(r.data["access"])
+        assert datos["rol"] == "entidad" and datos["entidad_financiera_id"] == 1
+        assert Usuario.objects.get(username="RESP-BNB").rol == Usuario.Rol.ENTIDAD
+
+    def test_un_rol_desconocido_no_entra(self):
+        r, _ = _login(username="otro", rol="AUDITOR")
         assert r.status_code == 401
         assert "todavía no tiene acceso" in str(r.data)
 
@@ -184,6 +193,37 @@ class TestCobroConCajaDeLaCajera:
         r = _api(cajera_nest).post("/api/cobros-efectivo/", {"deuda_id": deudas[0].pk, "monto_recibido": "100"}, format="json")
         assert r.status_code == 400
         assert "Abre tu caja" in str(r.data)
+
+    def test_con_la_caja_de_otro_dia_no_cobra_y_puede_abrir_la_de_hoy(self, cajera_nest, supervisor, deudas):  # noqa: F811
+        """El SIIC es por día: con la caja de ayer abierta en el panel, las facturas de hoy fallarían."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        vieja = Caja.objects.create(cajero=cajera_nest, abierta_por=cajera_nest, caja_codigo="401",
+                                    abierta_en=timezone.now() - timedelta(days=3))
+        r = _api(cajera_nest).post("/api/cobros-efectivo/", {"deuda_id": deudas[0].pk, "monto_recibido": "100"}, format="json")
+        assert r.status_code == 400 and "quedó sin cerrar" in str(r.data)
+
+        with patch.object(CajeraCobranzasClient, "aperturar_caja", return_value={}), \
+             patch.object(CajeraCobranzasClient, "caja_del_dia", return_value={"estado": "ABIERTA", "dispositivo_id": 402}):
+            hoy = Caja.abrir(cajero=cajera_nest, usuario=supervisor, motivo="test", agencia_sigla="CEN")
+        assert hoy.caja_codigo == "402" and hoy.estado == Caja.Estado.ABIERTA
+        vieja.refresh_from_db()
+        assert vieja.estado == Caja.Estado.SIN_CERRAR
+        r = _api(cajera_nest).post("/api/cobros-efectivo/", {"deuda_id": deudas[0].pk, "monto_recibido": "100"}, format="json")
+        assert r.status_code == 201, r.data
+
+    def test_al_listar_sus_cajas_la_vieja_queda_sin_cerrar(self, cajera_nest):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        Caja.objects.create(cajero=cajera_nest, abierta_por=cajera_nest, caja_codigo="401",
+                            abierta_en=timezone.now() - timedelta(days=1))
+        r = _api(cajera_nest).get("/api/cajas/")
+        filas = r.data["results"] if isinstance(r.data, dict) else r.data
+        assert [c["estado"] for c in filas] == ["sin_cerrar"]
 
     def test_la_factura_va_con_el_cliente_de_la_cajera(self, cajera_nest, supervisor, deudas, monkeypatch):  # noqa: F811
         with patch.object(CajeraCobranzasClient, "aperturar_caja", return_value={}), \

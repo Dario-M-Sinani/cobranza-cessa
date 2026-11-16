@@ -37,3 +37,24 @@ class EsAdmin(permissions.BasePermission):
     def has_permission(self, request, view):
         usuario = request.user
         return bool(usuario and usuario.is_authenticated and usuario.rol == Usuario.Rol.ADMIN)
+
+
+class PuedeVerCajeros(permissions.BasePermission):
+    """Supervisor y admin ven todas las entidades; el responsable de una entidad, solo la suya."""
+
+    message = "Requiere rol de supervisor, administrador o responsable de entidad."
+
+    def has_permission(self, request, view):
+        usuario = request.user
+        return bool(
+            usuario
+            and usuario.is_authenticated
+            and usuario.rol in (Usuario.Rol.SUPERVISOR, Usuario.Rol.ADMIN, Usuario.Rol.ENTIDAD)
+        )
+
+
+def entidad_forzada(usuario) -> int | None:
+    """La entidad a la que queda limitado el usuario (None = puede ver todas)."""
+    if usuario.rol == Usuario.Rol.ENTIDAD:
+        return int(usuario.entidad_financiera_id or 0)
+    return None

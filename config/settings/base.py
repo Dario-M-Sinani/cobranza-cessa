@@ -110,7 +110,8 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        # JWT de simplejwt + el límite del responsable de entidad (solo cajeros y transacciones).
+        "apps.usuarios.autenticacion.JWTConLimiteDeEntidad",
     ),
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
@@ -165,7 +166,15 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.cobranza.tasks.enviar_facturas_pendientes",
         "schedule": 60.0,
     },
+    # Tipo de cambio oficial del BCB, como referencia de la cotización del SIIC (apps/cobranza/cotizacion.py).
+    "leer-cotizacion-bcb": {
+        "task": "apps.cobranza.tasks.leer_cotizacion_bcb",
+        "schedule": crontab(minute=5),
+    },
 }
+
+BCB_COTIZACION_URL = env("BCB_COTIZACION_URL", default="https://www.bcb.gob.bo/bcb_tco_publico_ultima_cotizacion.php")
+FACTURA_BO_COTIZACION_URL = env("FACTURA_BO_COTIZACION_URL", default="https://api.factura.bo/ExchangeRate")
 
 # Integración MC4/SIP (ver services/mc4_client.py) -- misma pasarela que ya usa
 # cessa-laravel en producción (SipQrProvider.php) contra Banco BISA. Sin

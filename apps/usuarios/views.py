@@ -11,7 +11,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 
 from . import cajeros
 from .models import Usuario
-from .permissions import EsAdmin, EsSupervisorOAdmin
+from .permissions import EsAdmin, EsSupervisorOAdmin, PuedeVerCajeros, entidad_forzada
 from .serializers import ResetearPasswordCajeroSerializer, TokenObtainPairConRolSerializer, UsuarioSerializer
 from .utils import invalidar_tokens_de
 
@@ -61,12 +61,18 @@ class CajerosView(APIView):
     entidades. `POST /api/cajeros/` (admin): alta doble Nest + SIIC. Ver apps/usuarios/cajeros.py."""
 
     def get_permissions(self):
-        return [IsAuthenticated(), EsAdmin() if self.request.method == "POST" else EsSupervisorOAdmin()]
+        return [IsAuthenticated(), EsAdmin() if self.request.method == "POST" else PuedeVerCajeros()]
 
     def get(self, request):
         try:
             entidad = int(request.query_params.get("entidad_financiera_id") or 0) or None
-            return Response({"cajeros": cajeros.listar(request.user, entidad), "entidades": cajeros.entidades(request.user)})
+            propia = entidad_forzada(request.user)
+            if propia is not None:
+                entidad = propia
+            entidades = cajeros.entidades(request.user)
+            if propia is not None:
+                entidades = [e for e in entidades if e["id"] == propia]
+            return Response({"cajeros": cajeros.listar(request.user, entidad), "entidades": entidades})
         except (TypeError, ValueError):
             return Response({"detail": "Entidad inválida."}, status=status.HTTP_400_BAD_REQUEST)
         except cajeros.CajerosError as exc:
@@ -84,7 +90,7 @@ class CajeroView(APIView):
     `PATCH /api/cajeros/<username>/` (admin): cambios en la Nest y en el SIIC."""
 
     def get_permissions(self):
-        return [IsAuthenticated(), EsAdmin() if self.request.method == "PATCH" else EsSupervisorOAdmin()]
+        return [IsAuthenticated(), EsAdmin() if self.request.method == "PATCH" else PuedeVerCajeros()]
 
     def get(self, request, clave):
         if not clave.isdigit():
@@ -144,7 +150,7 @@ def _con_fallidas(request) -> bool:
 class TransaccionesCajeroView(APIView):
     """`GET /api/cajeros/<id>/transacciones/?desde=AAAA-MM-DD&hasta=AAAA-MM-DD[&fallidas=1]` (supervisor/admin)."""
 
-    permission_classes = [IsAuthenticated, EsSupervisorOAdmin]
+    permission_classes = [IsAuthenticated, PuedeVerCajeros]
 
     def get(self, request, clave):
         try:
@@ -163,7 +169,7 @@ class TransaccionesEntidadView(APIView):
     """`GET /api/transacciones-siic/?entidad=<id>&desde=&hasta=[&fallidas=1]`: las de todos los cajeros
     de una entidad financiera (supervisor/admin)."""
 
-    permission_classes = [IsAuthenticated, EsSupervisorOAdmin]
+    permission_classes = [IsAuthenticated, PuedeVerCajeros]
 
     def get(self, request):
         try:
@@ -171,6 +177,9 @@ class TransaccionesEntidadView(APIView):
         except ValueError:
             return Response({"detail": "Fechas inválidas (AAAA-MM-DD)."}, status=400)
         entidad = request.query_params.get("entidad") or ""
+        propia = entidad_forzada(request.user)
+        if propia is not None:
+            entidad = str(propia)
         if not entidad.isdigit():
             return Response({"detail": "Elige la entidad financiera."}, status=400)
         try:
@@ -183,7 +192,7 @@ class TransaccionesEntidadView(APIView):
 class FacturasTransaccionView(APIView):
     """`GET /api/transacciones-siic/<uuid>/facturas/`: el PDF de las facturas (reimprimir)."""
 
-    permission_classes = [IsAuthenticated, EsSupervisorOAdmin]
+    permission_classes = [IsAuthenticated, PuedeVerCajeros]
 
     def get(self, request, uuid):
         try:
@@ -196,9 +205,10 @@ class FacturasTransaccionView(APIView):
 
 
 class TransaccionNestView(APIView):
-    """`GET /api/transacciones-siic/<uuid>/`: detalle. `POST .../anular/ {"motivo"}`: anula (solo hoy)."""
+    """`GET /api/transacciones-siic/<uuid>/`: detalle. `POST .../anular/ {"motivo"}`: anula (solo hoy).
+    El responsable de una entidad solo las de su banco: eso lo controla la Nest con su token."""
 
-    permission_classes = [IsAuthenticated, EsSupervisorOAdmin]
+    permission_classes = [IsAuthenticated, PuedeVerCajeros]
 
     def get(self, request, uuid):
         try:

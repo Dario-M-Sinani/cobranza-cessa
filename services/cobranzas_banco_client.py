@@ -412,6 +412,10 @@ class CajeraCobranzasClient(LumenCobranzasBancoClient):
     def agencias(self, entidad_financiera_id: int) -> list[dict]:
         return self._json("get", f"/v1/entidades-financieras/{int(entidad_financiera_id)}/agencias", "agencias") or []
 
+    def cotizacion_dolar(self, fecha_aaaammdd: str) -> dict:
+        """{"fecha", "cotizacion"} de ADMINDTA.COTIZA (la del cierre de caja); cotizacion null si no está cargada."""
+        return self._json("get", "/v1/cotizacion-dolar", "cotización del dólar", params={"fecha": fecha_aaaammdd}) or {}
+
     # --- Cierre de caja (como cierreCaja.xhtml de la app Java) ---------------------------------
 
     def catalogo(self, nombre: str) -> list[dict]:
