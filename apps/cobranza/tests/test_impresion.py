@@ -80,8 +80,14 @@ class TestImpresionComprobante:
 class TestComprobantesDelDia:
     URL_LISTA = "/api/comprobantes/"
 
-    def test_solo_supervisor_o_admin(self, cajera):
-        assert _api(cajera).get(self.URL_LISTA).status_code == 403
+    def test_la_cajera_ve_solo_sus_cobros_y_no_anula(self, cajera, deudas):
+        otra = Usuario.objects.create_user(username="caj-otra", password="x", rol=Usuario.Rol.CAJERA, activo=True)
+        mio = _cobrar(cajera, deudas[0])
+        _cobrar(otra, deudas[1])
+        r = _api(cajera).get(self.URL_LISTA)
+        assert r.status_code == 200
+        assert [(f["tipo"], f["id"]) for f in r.data["comprobantes"]] == [("efectivo", mio)]
+        assert r.data["comprobantes"][0]["se_puede_anular"] is False
 
     def test_lista_efectivo_y_grupo_con_impresiones(self, cajera, supervisor, deudas):
         a, b = deudas

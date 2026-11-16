@@ -1,7 +1,8 @@
 """Cierre de caja en el SIIC (CAJAS_POR_CAJERA), como cierreCaja.xhtml de la app Java de cobranzas.
 
 La cajera, con su usuario de la Nest:
-1. Cuenta el efectivo por cortes de billetes y monedas (Bs) → `actualizar-efectivo`.
+1. Cuenta el efectivo por cortes de billetes y monedas (Bs) y, si recibió, los dólares por cortes
+   (Sus 100 a Sus 1) → `actualizar-efectivo` con moneda B o D.
 2. Revisa los documentos del día (cheques, QR...) y agrega los que recibió a mano → `entes-cierre-caja`.
 3. Cierra → `cerrar`. Antes, el panel manda al SIIC las facturas de esa caja que falten: con la caja
    cerrada, la Nest ya no deja pagar en ella y esa factura quedaría colgada.
@@ -26,6 +27,10 @@ CORTES_BS = [
     ("10", Decimal("10")), ("5", Decimal("5")), ("2", Decimal("2")), ("1", Decimal("1")),
     ("050", Decimal("0.5")), ("020", Decimal("0.2")), ("010", Decimal("0.1")),
 ]
+# Dólares, como el diálogo "Dólares" del cierre en la app Java (corte_sus_100 ... corte_sus_1).
+CORTES_SUS = [(c, Decimal(c)) for c in ("100", "50", "20", "10", "5", "2", "1")]
+# En Caja.arqueo_cortes los cortes en Bs van con su clave ("200", "050"...) y los dólares con "sus_".
+PREFIJO_SUS = "sus_"
 # Entes que no se agregan a mano: el efectivo sale de los cortes y el QR lo registra cada cobro.
 ENTES_AUTOMATICOS = {"EFECTIVO", "DOLARES", "PAGO POR QR"}
 
@@ -110,10 +115,16 @@ def estado_cierre(caja: Caja, ver_totales: bool) -> dict:
     return base | datos
 
 
-def declarar_efectivo(caja: Caja, usuario, cortes: dict) -> dict:
+def declarar_efectivo(caja: Caja, usuario, cortes: dict, moneda: str = "B") -> dict:
+    """Efectivo contado por cortes. `moneda` "B" (bolivianos) o "D" (dólares): cada uno se guarda en
+    el SIIC por separado y uno no borra al otro."""
     _abierta_de(caja, usuario)
+    if moneda not in ("B", "D"):
+        raise CierreInvalido("La moneda tiene que ser B (bolivianos) o D (dólares).")
+    dolares = moneda == "D"
+    tabla, prefijo_siic = (CORTES_SUS, "corte_sus_") if dolares else (CORTES_BS, "corte_bs_")
     limpios = {}
-    for corte, _ in CORTES_BS:
+    for corte, _ in tabla:
         valor = cortes.get(corte, 0)
         try:
             cantidad = int(str(valor).strip() or 0)
@@ -121,13 +132,20 @@ def declarar_efectivo(caja: Caja, usuario, cortes: dict) -> dict:
             raise CierreInvalido(f"La cantidad de billetes/monedas de {corte} no es un número entero.")
         if cantidad < 0:
             raise CierreInvalido("Las cantidades no pueden ser negativas.")
-        limpios[f"corte_bs_{corte}"] = cantidad
-    _siic(_cliente(caja).actualizar_efectivo, "B", limpios)
-    caja.arqueo_cortes = {k.removeprefix("corte_bs_"): v for k, v in limpios.items()}
+        limpios[f"{prefijo_siic}{corte}"] = cantidad
+    _siic(_cliente(caja).actualizar_efectivo, moneda, limpios)
+
+    clave = (lambda c: f"{PREFIJO_SUS}{c}") if dolares else (lambda c: c)
+    guardados = {k: v for k, v in (caja.arqueo_cortes or {}).items() if k.startswith(PREFIJO_SUS) != dolares}
+    guardados.update({clave(c): limpios[f"{prefijo_siic}{c}"] for c, _ in tabla})
+    caja.arqueo_cortes = guardados
     caja.save(update_fields=["arqueo_cortes"])
-    total = sum((Decimal(caja.arqueo_cortes[c]) * v for c, v in CORTES_BS), Decimal("0"))
-    LogAuditoria.objects.create(usuario=usuario, accion=f"Caja: efectivo declarado Bs {total:.2f}", entidad_afectada=f"Caja:{caja.pk}")
-    return {"cortes": caja.arqueo_cortes, "efectivo_bs": f"{total:.2f}"}
+    total = sum((Decimal(limpios[f"{prefijo_siic}{c}"]) * v for c, v in tabla), Decimal("0"))
+    simbolo = "Sus" if dolares else "Bs"
+    LogAuditoria.objects.create(
+        usuario=usuario, accion=f"Caja: efectivo declarado {simbolo} {total:.2f}", entidad_afectada=f"Caja:{caja.pk}"
+    )
+    return {"cortes": caja.arqueo_cortes, "efectivo_sus" if dolares else "efectivo_bs": f"{total:.2f}"}
 
 
 def guardar_documento(caja: Caja, usuario, datos: dict) -> dict:

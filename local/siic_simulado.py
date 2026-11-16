@@ -614,7 +614,8 @@ class ManejadorCobranzas(Manejador):
         t = ESTADO.get("nest_transacciones", {}).get(uuid)
         if t is None or t["estado"] != "PAGADA":
             return self._json(403, {"error": "No se puede visualizar los comprobantes de la transacción.", "code": 403})
-        if usuario and t["usuario"] != usuario:
+        # Como la Nest: solo la cajera (CAJA) está limitada a las suyas; supervisión y sistemas ven todas.
+        if usuario and USUARIOS_NEST.get(usuario, (0, "", "CAJA"))[2] == "CAJA" and t["usuario"] != usuario:
             return self._json(403, {"error": "Usted no está autorizado para acceder a los comprobantes de la transacción.", "code": 403})
         if formato == "pdf":
             return self._pdf_ok(_pdf_transaccion(uuid) or _pdf(["Sin comprobante"]))

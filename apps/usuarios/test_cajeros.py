@@ -202,3 +202,62 @@ class TestTransaccionesDeCajeros:
         SolicitudLiquidacion.objects.create(**{k: v for k, v in datos.items() if k in campos})
         r = _api(supervisora).post("/api/transacciones-siic/u-web/anular/", {"motivo": "cobro duplicado"}, format="json")
         assert r.status_code == 400 and "pago web" in r.data["detail"]
+
+
+@pytest.mark.django_db
+class TestTransaccionesDeEntidadYReimpresion:
+    def test_sin_fallidas_salvo_que_se_pidan(self, supervisora):
+        filas = [
+            {"uuid": "u1", "lote": 1, "estado": "PAGADA", "fecha_creacion": "2026-11-13 10:00:00"},
+            {"uuid": "u2", "lote": 2, "estado": "FALLIDA", "fecha_creacion": "2026-11-13 11:00:00"},
+        ]
+        parche, _ = _nest({("get", "/v1/transacciones"): _respuesta(200, filas)})
+        with parche:
+            sin = _api(supervisora).get("/api/cajeros/4/transacciones/?desde=2026-11-13")
+            con = _api(supervisora).get("/api/cajeros/4/transacciones/?desde=2026-11-13&fallidas=1")
+        assert [t["uuid"] for t in sin.data["transacciones"]] == ["u1"]
+        assert [t["uuid"] for t in con.data["transacciones"]] == ["u1", "u2"]
+
+    def test_todas_las_cajeras_de_una_entidad(self, supervisora):
+        usuarios = [
+            {"id": 2, "username": "CAJERA1", "nombre": "MARIA", "rol": "CAJA", "entidad_financiera_id": 1},
+            {"id": 3, "username": "CAJERA2", "nombre": "ROSA", "rol": "CAJA", "entidad_financiera_id": 1},
+            {"id": 5, "username": "SUPERV", "nombre": "ANA", "rol": "COBRANZA", "entidad_financiera_id": 1},
+        ]
+        por_cajero = {
+            2: [{"uuid": "a", "lote": 1, "estado": "PAGADA", "fecha_creacion": "2026-11-13 09:00:00", "fecha_pago": "2026-11-13 09:01:00"}],
+            3: [{"uuid": "b", "lote": 2, "estado": "PAGADA", "fecha_creacion": "2026-11-13 10:00:00", "fecha_pago": "2026-11-13 10:01:00"}],
+        }
+        pedidos = []
+
+        def request(self, metodo, ruta, **kwargs):
+            params = kwargs.get("params") or {}
+            pedidos.append((ruta, params))
+            if ruta == "/v1/usuarios":
+                return _respuesta(200, usuarios)
+            return _respuesta(200, por_cajero[params["usuario_id"]])
+
+        with patch.object(CajeraCobranzasClient, "_request_autenticado", autospec=True, side_effect=request):
+            r = _api(supervisora).get("/api/transacciones-siic/?entidad=1&desde=2026-11-13&hasta=2026-11-13")
+        assert r.status_code == 200, r.data
+        assert [(t["uuid"], t["cajero"]) for t in r.data["transacciones"]] == [("b", "CAJERA2"), ("a", "CAJERA1")]
+        assert [p["usuario_id"] for ruta, p in pedidos if ruta == "/v1/transacciones"] == [2, 3]  # el supervisor no
+
+    def test_entidad_obligatoria(self, supervisora):
+        assert _api(supervisora).get("/api/transacciones-siic/").status_code == 400
+
+    def test_reimprime_las_facturas_en_pdf_con_auditoria(self, supervisora):
+        from apps.auditoria.models import LogAuditoria
+
+        pdf = _respuesta(200, None)
+        pdf.content = b"%PDF-1.4 facturas"
+        parche, pedidos = _nest({("get", "/v1/transacciones/u-banco/documentos"): pdf})
+        with parche:
+            r = _api(supervisora).get("/api/transacciones-siic/u-banco/facturas/")
+        assert r.status_code == 200 and r["Content-Type"] == "application/pdf"
+        assert r.content.startswith(b"%PDF")
+        assert LogAuditoria.objects.filter(accion="Facturas del SIIC reimpresas", entidad_afectada="Transaccion:u-banco").exists()
+
+    def test_la_cajera_no_reimprime_facturas_del_siic(self, db):
+        cajera = _usuario_nest("CAJERA1", Usuario.Rol.CAJERA)
+        assert _api(cajera).get("/api/transacciones-siic/u-banco/facturas/").status_code == 403

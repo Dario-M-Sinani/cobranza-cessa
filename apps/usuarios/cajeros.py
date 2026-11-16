@@ -210,16 +210,26 @@ def cambiar_contrasena(usuario, actual: str, nueva: str) -> None:
 
 # --- Transacciones de un cajero (como transacciones.xhtml de la app Java) -------------------------
 
-def transacciones(usuario, id_nest: int, desde: date, hasta: date) -> list[dict]:
-    """Las transacciones de cualquier cajero (también de los bancos) en un rango de fechas."""
+MAX_CAJEROS_POR_ENTIDAD = 60
+
+
+def _validar_rango(desde: date, hasta: date) -> None:
     if hasta < desde:
         raise CajerosError("La fecha final es anterior a la inicial.")
     if (hasta - desde).days > 31:
         raise CajerosError("El rango no puede pasar de 31 días.")
+
+
+def transacciones(usuario, id_nest: int, desde: date, hasta: date, incluir_fallidas: bool = False) -> list[dict]:
+    """Las transacciones de cualquier cajero (también de los bancos) en un rango de fechas. Como la
+    app Java, sin las FALLIDAS (pagos que el SIIC rechazó: no movieron plata) salvo que se pidan."""
+    _validar_rango(desde, hasta)
     filas = _llamar(
         usuario, "get", "/v1/transacciones",
         params={"usuario_id": int(id_nest), "fecha_inicio": desde.isoformat(), "fecha_fin": hasta.isoformat()},
     )
+    if not incluir_fallidas:
+        filas = [f for f in filas if f.get("estado") != "FALLIDA"]
     origenes = _origenes([f["uuid"] for f in filas])
     return [
         {
@@ -237,6 +247,41 @@ def transacciones(usuario, id_nest: int, desde: date, hasta: date) -> list[dict]
         }
         for f in filas
     ]
+
+
+def transacciones_entidad(usuario, entidad_id: int, desde: date, hasta: date, incluir_fallidas: bool = False) -> list[dict]:
+    """Las de todos los cajeros (rol CAJA) de una entidad financiera, juntas y de la más nueva a la más
+    vieja. La Nest solo lista por cajero, así que se le pregunta por cada uno."""
+    _validar_rango(desde, hasta)
+    cajas = [c for c in _llamar(usuario, "get", "/v1/usuarios", params={"entidad_financiera_id": int(entidad_id)})
+             if c.get("rol") == "CAJA" and str(c.get("entidad_financiera_id")) == str(entidad_id)]
+    if len(cajas) > MAX_CAJEROS_POR_ENTIDAD:
+        raise CajerosError(f"La entidad tiene {len(cajas)} cajeros: elige uno.")
+    todas = []
+    for c in cajas:
+        for t in transacciones(usuario, c["id"], desde, hasta, incluir_fallidas):
+            todas.append({**t, "cajero": c["username"], "cajero_nombre": c.get("nombre") or ""})
+    return sorted(todas, key=lambda t: t.get("fecha_pago") or t.get("fecha_creacion") or "", reverse=True)
+
+
+def facturas_pdf(usuario, uuid: str) -> bytes:
+    """Las facturas de una transacción PAGADA, en PDF, como "reimprimir" de la app Java."""
+    from apps.auditoria.models import LogAuditoria
+
+    cliente = _cliente(usuario)
+    try:
+        respuesta = cliente._request_autenticado("get", f"/v1/transacciones/{uuid}/documentos", params={"formato": "pdf"})
+    except CobranzasBancoError as exc:
+        raise CajerosError(f"Sistema de cobranzas: {exc}", 502) from exc
+    if not respuesta.ok:
+        status = respuesta.status_code if respuesta.status_code in (400, 403, 404) else 502
+        raise CajerosError(_mensaje(respuesta, cliente), status)
+    if not respuesta.content.startswith(b"%PDF"):
+        raise CajerosError("El sistema de cobranzas no devolvió un PDF.", 502)
+    LogAuditoria.objects.create(
+        usuario=usuario, accion="Facturas del SIIC reimpresas", entidad_afectada=f"Transaccion:{uuid}"[:255]
+    )
+    return respuesta.content
 
 
 def _origenes(uuids: list[str]) -> dict[str, str]:

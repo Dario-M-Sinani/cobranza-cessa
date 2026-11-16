@@ -7,6 +7,8 @@ from .views import (
     CambiarContrasenaView,
     TransaccionesCajeroView,
     TransaccionNestView,
+    TransaccionesEntidadView,
+    FacturasTransaccionView,
     UsuarioViewSet,
 )
 
@@ -18,6 +20,8 @@ urlpatterns = router.urls + [
     path("cajeros/", CajerosView.as_view(), name="cajeros"),
     path("cajeros/<str:clave>/", CajeroView.as_view(), name="cajero"),
     path("cajeros/<str:clave>/transacciones/", TransaccionesCajeroView.as_view(), name="cajero-transacciones"),
+    path("transacciones-siic/", TransaccionesEntidadView.as_view(), name="transacciones-siic"),
     path("transacciones-siic/<str:uuid>/", TransaccionNestView.as_view(), name="transaccion-siic"),
+    path("transacciones-siic/<str:uuid>/facturas/", FacturasTransaccionView.as_view(), name="transaccion-siic-facturas"),
     path("transacciones-siic/<str:uuid>/anular/", TransaccionNestView.as_view(), name="transaccion-siic-anular"),
 ]

@@ -68,6 +68,28 @@ class TestArqueo:
         caja_siic.refresh_from_db()
         assert caja_siic.arqueo_cortes["200"] == 1
 
+    def test_dolares_por_cortes_sin_borrar_los_bs(self, caja_siic, cajera_nest, nest_cierre):
+        _api(cajera_nest).put(f"/api/cajas/{caja_siic.pk}/efectivo/", {"cortes": {"200": 1}}, format="json")
+        r = _api(cajera_nest).put(
+            f"/api/cajas/{caja_siic.pk}/efectivo/", {"moneda": "D", "cortes": {"100": 2, "5": 1}}, format="json"
+        )
+        assert r.status_code == 200, r.data
+        assert r.data["efectivo_sus"] == "205.00"
+        moneda, cortes = nest_cierre.efectivo.call_args.args
+        assert moneda == "D" and cortes == {"corte_sus_100": 2, "corte_sus_50": 0, "corte_sus_20": 0,
+                                            "corte_sus_10": 0, "corte_sus_5": 1, "corte_sus_2": 0, "corte_sus_1": 0}
+        caja_siic.refresh_from_db()
+        assert caja_siic.arqueo_cortes["200"] == 1 and caja_siic.arqueo_cortes["sus_100"] == 2
+        # Volver a guardar los Bs no borra los dólares.
+        _api(cajera_nest).put(f"/api/cajas/{caja_siic.pk}/efectivo/", {"cortes": {"200": 2}}, format="json")
+        caja_siic.refresh_from_db()
+        assert caja_siic.arqueo_cortes["200"] == 2 and caja_siic.arqueo_cortes["sus_5"] == 1
+
+    def test_moneda_invalida(self, caja_siic, cajera_nest, nest_cierre):
+        r = _api(cajera_nest).put(f"/api/cajas/{caja_siic.pk}/efectivo/", {"moneda": "E", "cortes": {}}, format="json")
+        assert r.status_code == 400
+        nest_cierre.efectivo.assert_not_called()
+
     def test_cortes_negativos(self, caja_siic, cajera_nest, nest_cierre):
         r = _api(cajera_nest).put(f"/api/cajas/{caja_siic.pk}/efectivo/", {"cortes": {"200": -1}}, format="json")
         assert r.status_code == 400

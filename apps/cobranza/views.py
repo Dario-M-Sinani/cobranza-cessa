@@ -64,7 +64,7 @@ from .services import (
     registrar_cobro_efectivo_agrupado,
 )
 from .services import reintentar_facturacion as reintentar_facturacion_servicio
-from . import anulacion, cierre, formas_pago, proformas
+from . import anulacion, cierre, formas_pago, proformas, reportes_qr
 from .reportes import resumen_caja, resumen_dashboard
 
 
@@ -251,6 +251,56 @@ class TransaccionQRViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vie
         except ErrorFacturacion as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(FacturaSerializer(factura).data)
+
+    def _filtradas(self, request):
+        filtros = reportes_qr.leer_filtros(request.query_params)
+        return filtros, reportes_qr.filtrar(self.get_queryset(), filtros)
+
+    @action(detail=False, methods=["get"])
+    def buscar(self, request):
+        """Lista de QR con filtros y paginada (como listaQr de la app Java):
+        `?desde=&hasta=&estado=&cajero=&clientes=101194,101591&qr=&pagina=`. La cajera, solo los suyos."""
+        try:
+            _, qs = self._filtradas(request)
+        except reportes_qr.FiltroInvalido as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            numero = int(request.query_params.get("pagina") or 1)
+        except ValueError:
+            numero = 1
+        return Response(reportes_qr.resumen(qs) | reportes_qr.pagina(qs, numero))
+
+    @action(detail=False, methods=["get"], url_path="totales-por-dia")
+    def totales_por_dia(self, request):
+        try:
+            filtros, qs = self._filtradas(request)
+        except reportes_qr.FiltroInvalido as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"desde": filtros.desde, "hasta": filtros.hasta} | reportes_qr.totales_por_dia(qs))
+
+    @action(detail=False, methods=["get"], url_path="detalle")
+    def detalle(self, request):
+        """Todas las filas del filtro, sin paginar (para el reporte detalle imprimible). Hasta 5000."""
+        try:
+            filtros, qs = self._filtradas(request)
+        except reportes_qr.FiltroInvalido as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        total = qs.count()
+        if total > 5000:
+            return Response({"detail": f"Son {total} QR: acota las fechas o los filtros (máximo 5000)."}, status=400)
+        filas = qs.select_related("deuda__cliente", "usuario", "factura").order_by("creado_en")
+        return Response({"desde": filtros.desde, "hasta": filtros.hasta, **reportes_qr.resumen(qs),
+                         "resultados": [reportes_qr.fila(t) for t in filas]})
+
+    @action(detail=False, methods=["get"], url_path="exportar-txt")
+    def exportar_txt(self, request):
+        try:
+            filtros, qs = self._filtradas(request)
+        except reportes_qr.FiltroInvalido as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        respuesta = HttpResponse(reportes_qr.exportar_txt(qs), content_type="text/plain; charset=utf-8")
+        respuesta["Content-Disposition"] = f'attachment; filename="{reportes_qr.nombre_archivo(filtros, "txt")}"'
+        return respuesta
 
     @action(detail=False, methods=["get"], permission_classes=[IsAuthenticated, EsSupervisorOAdmin])
     def exportar_csv(self, request):
@@ -462,13 +512,14 @@ class CajaViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gen
 
     @action(detail=True, methods=["put"])
     def efectivo(self, request, pk=None):
-        """Efectivo contado en Bs por cortes: {"cortes": {"200": 3, "100": 0, ..., "010": 5}}."""
+        """Efectivo contado por cortes. En Bs: {"cortes": {"200": 3, ..., "010": 5}}; en dólares:
+        {"moneda": "D", "cortes": {"100": 1, ..., "1": 0}}."""
         caja = self.get_object()
         cortes = request.data.get("cortes")
         if not isinstance(cortes, dict):
             return Response({"detail": "Faltan los cortes."}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            return Response(cierre.declarar_efectivo(caja, request.user, cortes))
+            return Response(cierre.declarar_efectivo(caja, request.user, cortes, request.data.get("moneda") or "B"))
         except CajaOperacionInvalida as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -770,11 +821,12 @@ class AnularComprobanteView(APIView):
 class ComprobantesDelDiaView(APIView):
     """Cobros del panel de un día, para que supervisor/admin encuentre un comprobante y lo
     reimprima. `GET /api/comprobantes/?fecha=AAAA-MM-DD` (por defecto hoy, hora de Bolivia).
+    La cajera ve solo los suyos ("Mis cobros") y no anula: eso lo hace la supervisora.
 
     Efectivo individual, efectivo de varios clientes (una fila por grupo) y QR pagados (por la
     hora en que se confirmó el pago), del más nuevo al más viejo, con cuántas veces se imprimió."""
 
-    permission_classes = [IsAuthenticated, EsSupervisorOAdmin]
+    permission_classes = [IsAuthenticated]
 
     @staticmethod
     def _factura(cobro) -> str:
@@ -796,9 +848,12 @@ class ComprobantesDelDiaView(APIView):
         except ValueError:
             return Response({"detail": "Fecha inválida (AAAA-MM-DD)."}, status=status.HTTP_400_BAD_REQUEST)
 
+        es_cajera = request.user.rol == Usuario.Rol.CAJERA
+        propios = {"usuario": request.user} if es_cajera else {}
+
         filas = []
         efectivos = (
-            CobroEfectivo.objects.filter(creado_en__date=fecha, grupo__isnull=True)
+            CobroEfectivo.objects.filter(creado_en__date=fecha, grupo__isnull=True, **propios)
             .select_related("usuario", "deuda__cliente", "factura")
         )
         for c in efectivos:
@@ -807,7 +862,7 @@ class ComprobantesDelDiaView(APIView):
                 "forma_pago": _forma_pago(c), "cajero": c.usuario.username, "monto": c.monto_snapshot,
                 "clientes": [self._cliente(c.deuda)], "facturas": [self._factura(c)],
             })
-        grupos = CobroAgrupado.objects.filter(creado_en__date=fecha).select_related("usuario").prefetch_related(
+        grupos = CobroAgrupado.objects.filter(creado_en__date=fecha, **propios).select_related("usuario").prefetch_related(
             "cobros__deuda__cliente", "cobros__factura"
         )
         for g in grupos:
@@ -818,7 +873,7 @@ class ComprobantesDelDiaView(APIView):
                 "clientes": [self._cliente(c.deuda) for c in cobros], "facturas": [self._factura(c) for c in cobros],
             })
         qrs = TransaccionQR.objects.filter(
-            estado=TransaccionQR.Estado.PAGADO, actualizado_en__date=fecha
+            estado=TransaccionQR.Estado.PAGADO, actualizado_en__date=fecha, **propios
         ).select_related("usuario", "deuda__cliente", "factura")
         for t in qrs:
             filas.append({
@@ -857,7 +912,7 @@ class ComprobantesDelDiaView(APIView):
         for f in filas:
             f["impresiones"], f["ultima_impresion"] = impresiones.get((f["tipo"], f["id"]), (0, None))
             f["anulacion"] = anuladas.get((f["tipo"], f["id"]))
-            f["se_puede_anular"] = f["anulacion"] is None and fecha == hoy
+            f["se_puede_anular"] = not es_cajera and f["anulacion"] is None and fecha == hoy
             f["monto"] = f"{f['monto']:.2f}"
         filas.sort(key=lambda f: f["fecha"], reverse=True)
         return Response({"fecha": fecha.isoformat(), "comprobantes": filas})

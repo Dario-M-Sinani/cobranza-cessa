@@ -1,5 +1,6 @@
 from datetime import date
 
+from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -129,24 +130,69 @@ class CambiarContrasenaView(APIView):
         return Response({"detail": "Contraseña cambiada."})
 
 
+def _rango(request) -> tuple[date, date]:
+    hoy = timezone.localdate()
+    desde = date.fromisoformat(request.query_params.get("desde") or hoy.isoformat())
+    hasta = date.fromisoformat(request.query_params.get("hasta") or desde.isoformat())
+    return desde, hasta
+
+
+def _con_fallidas(request) -> bool:
+    return request.query_params.get("fallidas") in ("1", "true")
+
+
 class TransaccionesCajeroView(APIView):
-    """`GET /api/cajeros/<id>/transacciones/?desde=AAAA-MM-DD&hasta=AAAA-MM-DD` (supervisor/admin)."""
+    """`GET /api/cajeros/<id>/transacciones/?desde=AAAA-MM-DD&hasta=AAAA-MM-DD[&fallidas=1]` (supervisor/admin)."""
 
     permission_classes = [IsAuthenticated, EsSupervisorOAdmin]
 
     def get(self, request, clave):
         try:
-            hoy = timezone.localdate()
-            desde = date.fromisoformat(request.query_params.get("desde") or hoy.isoformat())
-            hasta = date.fromisoformat(request.query_params.get("hasta") or desde.isoformat())
+            desde, hasta = _rango(request)
         except ValueError:
             return Response({"detail": "Fechas inválidas (AAAA-MM-DD)."}, status=400)
         if not clave.isdigit():
             return Response({"detail": "Cajero inválido."}, status=400)
         try:
-            return Response({"transacciones": cajeros.transacciones(request.user, int(clave), desde, hasta)})
+            return Response({"transacciones": cajeros.transacciones(request.user, int(clave), desde, hasta, _con_fallidas(request))})
         except cajeros.CajerosError as exc:
             return Response({"detail": str(exc)}, status=exc.status)
+
+
+class TransaccionesEntidadView(APIView):
+    """`GET /api/transacciones-siic/?entidad=<id>&desde=&hasta=[&fallidas=1]`: las de todos los cajeros
+    de una entidad financiera (supervisor/admin)."""
+
+    permission_classes = [IsAuthenticated, EsSupervisorOAdmin]
+
+    def get(self, request):
+        try:
+            desde, hasta = _rango(request)
+        except ValueError:
+            return Response({"detail": "Fechas inválidas (AAAA-MM-DD)."}, status=400)
+        entidad = request.query_params.get("entidad") or ""
+        if not entidad.isdigit():
+            return Response({"detail": "Elige la entidad financiera."}, status=400)
+        try:
+            filas = cajeros.transacciones_entidad(request.user, int(entidad), desde, hasta, _con_fallidas(request))
+        except cajeros.CajerosError as exc:
+            return Response({"detail": str(exc)}, status=exc.status)
+        return Response({"transacciones": filas})
+
+
+class FacturasTransaccionView(APIView):
+    """`GET /api/transacciones-siic/<uuid>/facturas/`: el PDF de las facturas (reimprimir)."""
+
+    permission_classes = [IsAuthenticated, EsSupervisorOAdmin]
+
+    def get(self, request, uuid):
+        try:
+            pdf = cajeros.facturas_pdf(request.user, uuid)
+        except cajeros.CajerosError as exc:
+            return Response({"detail": str(exc)}, status=exc.status)
+        respuesta = HttpResponse(pdf, content_type="application/pdf")
+        respuesta["Content-Disposition"] = f'inline; filename="facturas-{uuid[:8]}.pdf"'
+        return respuesta
 
 
 class TransaccionNestView(APIView):
