@@ -129,11 +129,16 @@ Endpoints (header `X-Kiosco-Token`): `GET /api/kiosco/estado/`, `GET /api/kiosco
 **Poner una pantalla:**
 1. Agregar `nombre=token` a `KIOSCO_TOKENS` y reiniciar gunicorn.
 2. En el nginx del puerto 8443: `location /kiosco/ { proxy_pass http://127.0.0.1:8002; ... }` (como `/api/`).
-3. En la PC de la pantalla, la impresora (térmica o grande) como **predeterminada de Windows**, con
-   el tamaño de papel correcto en sus preferencias.
-4. Chrome en modo kiosco con impresión silenciosa (acceso directo / inicio automático):
-   `chrome.exe --kiosk --kiosk-printing --disable-pinch --overscroll-history-navigation=0 "https://10.1.1.88:8443/kiosco/?k=<token>&impresion=termica80"`
-   La página guarda el token y el formato y los quita de la URL.
+3. En el tótem (Windows): instalar Chrome (MSI empresarial) y el driver de la impresora con el papel
+   correcto (80 mm, sin márgenes), copiar `deploy/totem/` y, como administrador:
+   `powershell -ExecutionPolicy Bypass -File .\instalar-totem.ps1 -Impresora "<nombre en Get-Printer>"`
+   (pide el token sin mostrarlo). Deja usuario `kiosco` con inicio automático, la tarea "Kiosco CESSA"
+   (`C:\Kiosco\iniciar-kiosco.ps1`: espera al servidor, abre Chrome `--kiosk --kiosk-printing` y lo
+   reabre si se cierra), pantalla siempre encendida y reinicio diario 03:30. Registros en `C:\Kiosco\logs`.
+   Mantenimiento: archivo `C:\Kiosco\detener` o Shift al encender. Sacar todo: `-Desinstalar`.
+4. Entrar por **`https://test01.cessa.com.bo:8443/kiosco/`**, no por IP: el certificado es de Let's
+   Encrypt para ese nombre (por IP Chrome avisa). El DNS interno lo resuelve a 10.1.1.88; si no, el
+   instalador lo fija en `hosts` (resolver a la IP pública daría 403 por `KIOSCO_REDES`).
 
 ## Endpoints
 
