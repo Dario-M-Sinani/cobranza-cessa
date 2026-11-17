@@ -108,13 +108,15 @@ def es_conciliacion(item: dict) -> bool:
 
 def agrupar(items: list[dict]) -> list[list[dict]]:
     """Los comprobantes como los ve el cliente en la pantalla: cada conciliación va junto con el
-    mes siguiente (no se muestra aparte ni se puede dejar fuera de ese mes). Si no hay mes
-    siguiente, va con el anterior. El orden de los comprobantes no cambia."""
+    mes siguiente (no se muestra aparte ni se puede dejar fuera de ese mes). Si con eso la fila
+    queda en cero o negativa (conciliación de crédito mayor que el mes), se le suma también el
+    mes siguiente hasta que quede positiva. Lo que sobre al final va con la fila anterior.
+    El orden de los comprobantes no cambia."""
     grupos: list[list[dict]] = []
     sueltas: list[dict] = []
     for item in items:
         sueltas.append(item)
-        if not es_conciliacion(item):
+        if not es_conciliacion(item) and monto_de(sueltas) > 0:
             grupos.append(sueltas)
             sueltas = []
     if sueltas:
@@ -125,18 +127,29 @@ def agrupar(items: list[dict]) -> list[list[dict]]:
     return grupos
 
 
-def _principal(grupo: list[dict]) -> dict:
-    """El comprobante que da nombre a la fila: el mes (no la conciliación)."""
-    return next((i for i in grupo if not es_conciliacion(i)), grupo[0])
+def _meses(grupo: list[dict]) -> list[dict]:
+    return [i for i in grupo if not es_conciliacion(i)] or grupo[:1]
+
+
+def _periodo_de(grupo: list[dict]) -> str:
+    """"Junio 2025", o si la fila junta varios meses "Agosto y Septiembre 2025"."""
+    meses = _meses(grupo)
+    nombres = [periodo(i) for i in meses]
+    anios = {str(i.get("anio")) for i in meses}
+    if len(nombres) > 1 and len(anios) == 1 and all(" " in n for n in nombres):
+        nombres = [n.rsplit(" ", 1)[0] for n in nombres[:-1]] + nombres[-1:]
+    if len(nombres) == 1:
+        return nombres[0]
+    return ", ".join(nombres[:-1]) + " y " + nombres[-1]
 
 
 def _filas(items: list[dict]) -> list[dict]:
     filas, hasta = [], 0
     for grupo in agrupar(items):
         hasta += len(grupo)
-        principal = _principal(grupo)
+        principal = _meses(grupo)[-1]
         filas.append({
-            "periodo": periodo(principal),
+            "periodo": _periodo_de(grupo),
             "detalle": _reparar_encoding(_texto(principal.get("detalle"))),
             "importe": str(monto_de(grupo)),
             # Cuántos comprobantes (desde el más antiguo) se pagan si se elige hasta esta fila.
