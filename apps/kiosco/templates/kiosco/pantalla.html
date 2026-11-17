@@ -112,6 +112,9 @@
   .numero.vacio { border-color: var(--gris-300); color: #9ca3af; font-size: clamp(20px, 3vh, 28px); font-weight: 400; letter-spacing: 0; font-family: inherit; }
   .teclado { display: grid; grid-template-columns: repeat(3, 156px); gap: 14px; }
   .teclado button {
+    /* Sin el padding de 32px de los botones grandes: en una tecla de 156px, "Consultar" y
+       "Buscando…" no cabían y el texto se corría a la derecha. */
+    padding: 0 6px; white-space: nowrap; text-align: center;
     min-height: clamp(54px, 9vh, 96px); font-size: clamp(30px, 5vh, 44px); background: #fff; color: var(--gris-900);
     border: 1px solid var(--gris-300); box-shadow: 0 1px 2px rgba(0,0,0,.05); font-weight: 700;
   }
