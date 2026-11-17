@@ -162,7 +162,7 @@
   .avisos-pago { width: 100%; display: none; flex-direction: column; gap: 8px; }
   .avisos-pago.visible { display: flex; }
   .avisos-pago div { background: var(--ambar-50); border: 1px solid var(--ambar-200); color: var(--ambar-900); border-radius: 14px;
-    padding: 10px 18px; font-size: clamp(16px, 2.2vh, 20px); font-weight: 600; }
+    padding: 10px 18px; font-size: clamp(16px, 2.2vh, 20px); font-weight: 600; text-align: center; }
 
   /* QR = modal de pago de la web. */
   .qr-tarjeta { background: #fff; border: 1px solid var(--gris-200); border-radius: 24px; box-shadow: 0 20px 40px rgba(0,51,95,.15); padding: clamp(14px, 2.4vh, 28px) 40px; display: flex; flex-direction: column; align-items: center; gap: clamp(8px, 1.6vh, 16px); }
@@ -179,7 +179,7 @@
   .icono.error { background: var(--rojo-50); color: var(--rojo-600); }
   .icono.espera { background: var(--azul-50); }
   #r-titulo.exito { color: var(--verde-800); }
-  .impresion { display: flex; align-items: center; gap: 12px; font-size: clamp(18px, 2.6vh, 23px); color: var(--azul-900); font-weight: 700; background: var(--azul-50); border: 1px solid var(--azul-200); border-radius: 14px; padding: 12px 22px; }
+  .impresion { display: flex; align-items: center; gap: 12px; font-size: clamp(18px, 2.6vh, 23px); color: var(--azul-900); font-weight: 700; background: var(--azul-50); border: 1px solid var(--azul-200); border-radius: 14px; padding: 12px 22px; text-align: center; justify-content: center; }
   .acciones-resultado { display: flex; gap: 16px; }
 
   .pregunta {
@@ -643,10 +643,16 @@
     return null;
   }
 
+  // Filas elegidas: cada fila es un mes (con su conciliación ya sumada); `cantidad` es hasta qué
+  // comprobante llega esa fila.
+  function filasElegidas() {
+    return estado.cliente.deuda.filter(function (f) { return f.cantidad <= estado.cantidad; });
+  }
+
   function periodoElegido() {
-    var items = estado.cliente.deuda.slice(0, estado.cantidad);
-    if (!items.length) return "";
-    return items.length === 1 ? items[0].periodo : items[0].periodo + " a " + items[items.length - 1].periodo;
+    var filas = filasElegidas();
+    if (!filas.length) return "";
+    return filas.length === 1 ? filas[0].periodo : filas[0].periodo + " a " + filas[filas.length - 1].periodo;
   }
 
   function pintarDeuda() {
@@ -673,7 +679,7 @@
     }
 
     c.deuda.forEach(function (item, i) {
-      var cantidad = i + 1;
+      var cantidad = item.cantidad;
       var elegible = montoDe(cantidad) !== null;
       var conciliacion = (item.detalle || "").toUpperCase().indexOf("CONCILIA") !== -1;
       var fila = document.createElement("div");
@@ -689,7 +695,7 @@
       if (Number(item.importe) < 0) importe.classList.add("credito");
       // Tocar un mes marca hasta ese; tocar el último marcado lo quita. Nunca quedan meses saltados.
       if (elegible) fila.addEventListener("click", function () {
-        estado.cantidad = cantidad === estado.cantidad ? anteriorElegible(cantidad) : cantidad;
+        estado.cantidad = cantidad === estado.cantidad ? anteriorElegible(i) : cantidad;
         pintarDeuda();
       });
       lista.appendChild(fila);
@@ -702,15 +708,18 @@
       $("d-total").appendChild(document.createTextNode("Toca un mes para elegir cuánto pagar"));
       return;
     }
-    $("d-total").appendChild(document.createTextNode("Pagas " + (n === 1 ? "1 mes" : n + " meses")));
+    var meses = filasElegidas().length;
+    $("d-total").appendChild(document.createTextNode("Pagas " + (meses === 1 ? "1 mes" : meses + " meses")));
     var total = document.createElement("b");
     total.textContent = bs(montoDe(n));
     $("d-total").appendChild(total);
   }
 
-  // La cantidad cobrable anterior a `n` (una conciliación puede dejar un prefijo sin monto a pagar).
-  function anteriorElegible(n) {
-    for (var k = n - 1; k > 0; k--) if (montoDe(k) !== null) return k;
+  // Hasta dónde queda elegido al quitar la fila `i`: la fila cobrable anterior (un mes con
+  // conciliación puede dejar el subtotal sin monto a pagar), o nada.
+  function anteriorElegible(i) {
+    var filas = estado.cliente.deuda;
+    for (var k = i - 1; k >= 0; k--) if (montoDe(filas[k].cantidad) !== null) return filas[k].cantidad;
     return 0;
   }
 

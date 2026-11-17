@@ -152,16 +152,29 @@ class TestConsulta:
         assert r.status_code == 200
         datos = r.json()
         assert datos["nombre"] == "PEREZ MAMANI JUAN"
-        assert [d["periodo"] for d in datos["deuda"]] == ["Agosto 2026", "Septiembre 2026", "Septiembre 2026", "Octubre 2026"]
-        assert datos["deuda"][2]["importe"] == "-50.00"
-        # Con 3 meses el subtotal es 40 + 35.50 - 50 = 25.50 (> 0, se puede).
+        # La conciliación (-50) no se muestra aparte: va sumada al mes siguiente (octubre: 60 - 50).
+        assert datos["deuda"] == [
+            {"periodo": "Agosto 2026", "detalle": "CONSUMO", "importe": "40.00", "cantidad": 1},
+            {"periodo": "Septiembre 2026", "detalle": "CONSUMO", "importe": "35.50", "cantidad": 2},
+            {"periodo": "Octubre 2026", "detalle": "CONSUMO", "importe": "10.00", "cantidad": 4},
+        ]
+        # No se puede cortar entre la conciliación y su mes (cantidad 3).
         assert datos["cantidades"] == [
             {"cantidad": 1, "monto": "40.00"},
             {"cantidad": 2, "monto": "75.50"},
-            {"cantidad": 3, "monto": "25.50"},
             {"cantidad": 4, "monto": "85.50"},
         ]
         assert datos["total"] == "85.50"
+
+    def test_conciliacion_al_final_va_con_el_mes_anterior(self, config):
+        config["body"]["deuda"] = [_item(1, 2026, 8, "40.00"), _item(2, 2026, 8, "5.00", "CREDITO", "CONCILIACION")]
+        datos = _cliente().get("/api/kiosco/clientes/153896/", **INTERNA).json()
+        assert datos["deuda"] == [{"periodo": "Agosto 2026", "detalle": "CONSUMO", "importe": "35.00", "cantidad": 2}]
+        assert datos["cantidades"] == [{"cantidad": 2, "monto": "35.00"}]
+
+    def test_no_se_genera_qr_cortando_una_conciliacion(self, sip):
+        r = _cliente().post("/api/kiosco/qr/", {"nro_cliente": "153896", "cantidad": 3}, format="json", **INTERNA)
+        assert r.status_code == 409 and sip.generados == []
 
     def test_cliente_inexistente(self):
         r = _cliente().get("/api/kiosco/clientes/999/", **INTERNA)
@@ -323,7 +336,7 @@ class TestRecibo:
 
     def test_recibo_con_monto_y_meses_aunque_la_factura_no_este(self, sip, monkeypatch):
         # Sin `cobranzas`: el recibo sale de lo guardado en el pago, no del SIIC.
-        pago = _generar(cantidad=3)
+        pago = _generar(cantidad=4)
         sip.pagados.add(pago.alias)
         monkeypatch.setattr(services, "facturar", lambda p: None)
         services.consultar_sip(pago)
@@ -331,9 +344,10 @@ class TestRecibo:
         assert r.status_code == 200
         datos = r.json()
         assert datos["nro_cliente"] == "153896" and datos["nombre"] == "PEREZ MAMANI JUAN"
-        assert datos["total"] == "25.50"
+        assert datos["total"] == "85.50"
+        # La conciliación sale sumada a octubre, como en la pantalla.
         assert [(m["periodo"], m["importe"]) for m in datos["meses"]] == [
-            ("Agosto 2026", "40.00"), ("Septiembre 2026", "35.50"), ("Septiembre 2026", "-50.00"),
+            ("Agosto 2026", "40.00"), ("Septiembre 2026", "35.50"), ("Octubre 2026", "10.00"),
         ]
         assert datos["codigo"] == pago.alias and datos["cajero"] == "oficina-central"
 

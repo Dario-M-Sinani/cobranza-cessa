@@ -102,9 +102,53 @@ def monto_de(items: list[dict]) -> Decimal:
     return sum((importe_firmado(i) for i in items), Decimal("0")).quantize(Decimal("0.01"))
 
 
+def es_conciliacion(item: dict) -> bool:
+    return "CONCILIA" in _texto(item.get("detalle")).upper()
+
+
+def agrupar(items: list[dict]) -> list[list[dict]]:
+    """Los comprobantes como los ve el cliente en la pantalla: cada conciliación va junto con el
+    mes siguiente (no se muestra aparte ni se puede dejar fuera de ese mes). Si no hay mes
+    siguiente, va con el anterior. El orden de los comprobantes no cambia."""
+    grupos: list[list[dict]] = []
+    sueltas: list[dict] = []
+    for item in items:
+        sueltas.append(item)
+        if not es_conciliacion(item):
+            grupos.append(sueltas)
+            sueltas = []
+    if sueltas:
+        if grupos:
+            grupos[-1].extend(sueltas)
+        else:
+            grupos.append(sueltas)
+    return grupos
+
+
+def _principal(grupo: list[dict]) -> dict:
+    """El comprobante que da nombre a la fila: el mes (no la conciliación)."""
+    return next((i for i in grupo if not es_conciliacion(i)), grupo[0])
+
+
+def _filas(items: list[dict]) -> list[dict]:
+    filas, hasta = [], 0
+    for grupo in agrupar(items):
+        hasta += len(grupo)
+        principal = _principal(grupo)
+        filas.append({
+            "periodo": periodo(principal),
+            "detalle": _reparar_encoding(_texto(principal.get("detalle"))),
+            "importe": str(monto_de(grupo)),
+            # Cuántos comprobantes (desde el más antiguo) se pagan si se elige hasta esta fila.
+            "cantidad": hasta,
+        })
+    return filas
+
+
 def cantidades_cobrables(items: list[dict]) -> list[int]:
-    """Cada prefijo (los N más antiguos) cobrable: subtotal > 0 y dentro del tope."""
-    return [n for n in range(1, len(items) + 1) if Decimal("0") < monto_de(items[:n]) <= LIMITE_MONTO_QR]
+    """Hasta qué comprobante se puede cobrar: solo al final de un mes (con su conciliación), con
+    subtotal > 0 y dentro del tope."""
+    return [f["cantidad"] for f in _filas(items) if Decimal("0") < monto_de(items[:f["cantidad"]]) <= LIMITE_MONTO_QR]
 
 
 def resumen_para_pantalla(cliente: dict) -> dict:
@@ -113,15 +157,9 @@ def resumen_para_pantalla(cliente: dict) -> dict:
         "nro_cliente": cliente["nro_cliente"],
         "nombre": cliente["nombre"],
         "total": str(monto_de(items)),
-        "deuda": [
-            {
-                "periodo": periodo(i),
-                "detalle": _reparar_encoding(_texto(i.get("detalle"))),
-                "importe": str(importe_firmado(i)),
-            }
-            for i in items
-        ],
-        # La pantalla solo deja elegir "hasta qué mes": cada cantidad es un prefijo de `deuda`.
+        # Una fila por mes, con sus conciliaciones ya sumadas.
+        "deuda": _filas(items),
+        # La pantalla solo deja elegir "hasta qué mes": cada cantidad es un prefijo de los comprobantes.
         "cantidades": [{"cantidad": n, "monto": str(monto_de(items[:n]))} for n in cantidades_cobrables(items)],
     }
 
@@ -573,14 +611,8 @@ def recibo_de_pago(pago: PagoKiosco) -> dict | None:
     return {
         "nro_cliente": pago.nro_cliente,
         "nombre": pago.nombre_cliente,
-        "meses": [
-            {
-                "periodo": periodo(i),
-                "detalle": _reparar_encoding(_texto(i.get("detalle"))),
-                "importe": str(importe_firmado(i)),
-            }
-            for i in pago.detalle or []
-        ],
+        # Igual que en la pantalla: la conciliación sumada a su mes.
+        "meses": [{k: f[k] for k in ("periodo", "detalle", "importe")} for f in _filas(pago.detalle or [])],
         "total": str(pago.monto),
         "fecha_pago": pagado.strftime("%d/%m/%Y %H:%M"),
         "codigo": pago.alias,
