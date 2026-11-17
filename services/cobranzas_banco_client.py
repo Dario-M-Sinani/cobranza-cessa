@@ -66,6 +66,12 @@ class CobranzasBancoClientInterface(abc.ABC):
         vacía si la implementación no lo sabe (dobles de prueba viejos)."""
         return ""
 
+    def estado_caja(self) -> str:
+        """Para el estado del kiosco: la caja de hoy del usuario de pagos ("ABIERTA", "CERRADA"…),
+        "SIN_ABRIR" si todavía no se abrió (se abre sola al facturar). Lanza CobranzasBancoError si
+        no hay login o no responde. Los dobles sin red dicen que está abierta."""
+        return "ABIERTA"
+
 
 _MENSAJE_OTRO_DIA = "se realizó en fecha"
 
@@ -216,6 +222,21 @@ class LumenCobranzasBancoClient(CobranzasBancoClientInterface):
         response = self._request_autenticado("post", "/v1/cajas/aperturar", json=cuerpo)
         if not response.ok:
             raise CobranzasBancoRequestError(f"aperturar caja: {self._extraer_error(response)}")
+
+    def estado_caja(self) -> str:
+        try:
+            response = self._request_autenticado("get", "/v1/cajas/existe")
+        except requests.RequestException as exc:
+            raise CobranzasBancoRequestError(f"verificar caja: {exc}") from exc
+        if response.status_code == 404:
+            return "SIN_ABRIR"
+        if not response.ok:
+            raise CobranzasBancoRequestError(f"verificar caja: HTTP {response.status_code}: {response.text[:200]}")
+        try:
+            caja = response.json() or {}
+        except ValueError:
+            caja = {}
+        return (str(caja.get("estado") or "") if isinstance(caja, dict) else "").upper() or "ABIERTA"
 
     def crear_transaccion(self) -> str:
         response = self._request_autenticado("post", "/v1/transacciones")

@@ -110,7 +110,19 @@ SIP ── aviso de pago ──► test01 /api/externo/sip/ (callback único que
   internet. Si la web no responde, siguen los últimos leídos. Más limpio a futuro: un endpoint
   JSON en cessa-laravel en vez de leer el JSON de la página (Inertia).
 
-Endpoints (header `X-Kiosco-Token`): `GET /api/kiosco/avisos/`, `GET /api/kiosco/clientes/<nro>/`,
+- **Estado antes de cobrar** (`apps/kiosco/salud.py`): la pantalla pregunta cada minuto
+  `GET /api/kiosco/estado/`. Rojo (no ofrece pagar y el gateway rechaza el QR con 503): base,
+  login de SIP, login de cobranzas o worker de Celery parado. Amarillo (cobra, avisando antes del
+  QR): caja del SIIC cerrada o fuera de `KIOSCO_HORARIO_CAJA`, o impresora de red sin papel/tapa
+  abierta/apagada (`KIOSCO_IMPRESORAS=pantalla=ip:9100`, se le pregunta con DLE EOT de ESC/POS).
+  La tarea `vigilar_kioscos` avisa por Telegram los cambios (confirmados en dos pasadas) y si una
+  pantalla deja de preguntar en horario. Impresora simulada: `manage.py simular_impresora`.
+- **Al abrir la página** se ve la lista de revisiones ("Preparando el cajero…") y sigue sola: verde
+  en 3 s, amarillo en 8 s, rojo a "fuera de servicio". **Pantalla técnica:** 5 toques seguidos en el
+  encabezado + `KIOSCO_PIN_TECNICO` → detalle técnico, revisar de nuevo (sin caché) e imprimir un
+  ticket de prueba (`POST /api/kiosco/tecnico/`, 5 intentos por minuto). Sin PIN, deshabilitada.
+
+Endpoints (header `X-Kiosco-Token`): `GET /api/kiosco/estado/`, `GET /api/kiosco/avisos/`, `GET /api/kiosco/clientes/<nro>/`,
 `POST /api/kiosco/qr/` `{nro_cliente, cantidad}`, `GET /api/kiosco/qr/<alias>/`,
 `POST /api/kiosco/qr/<alias>/cancelar/`, `GET /api/kiosco/qr/<alias>/comprobante/`.
 

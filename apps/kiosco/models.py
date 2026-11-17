@@ -77,3 +77,24 @@ class EnvioFactura(models.Model):
 
     def __str__(self):
         return f"EnvioFactura#{self.pk} {self.canal} {self.pago.alias}"
+
+
+class PantallaKiosco(models.Model):
+    """Lo que el gateway sabe de cada pantalla (KIOSCO_TOKENS) para vigilarla (apps/kiosco/salud.py):
+    cuándo preguntó por última vez y qué problemas se avisaron por Telegram."""
+
+    nombre = models.CharField(max_length=50, unique=True)
+    creada_en = models.DateTimeField(auto_now_add=True)
+    # Última vez que la pantalla preguntó su estado (lo hace cada minuto mientras está prendida).
+    ultimo_contacto = models.DateTimeField(null=True, blank=True)
+    # Última pasada de la tarea `vigilar_kioscos` (Celery beat cada minuto): si se atrasa, el worker
+    # que detecta pagos y factura no está corriendo.
+    revisada_en = models.DateTimeField(null=True, blank=True)
+    # Problemas vigentes ya avisados ("" = todo bien) y el cambio que espera confirmarse en la
+    # siguiente pasada, para no avisar por un corte de unos segundos.
+    problemas_avisados = models.CharField(max_length=500, blank=True, default="")
+    problemas_nuevos = models.CharField(max_length=500, blank=True, default="")
+    veces_nuevos = models.PositiveSmallIntegerField(default=0)
+
+    def __str__(self):
+        return f"PantallaKiosco {self.nombre}"
