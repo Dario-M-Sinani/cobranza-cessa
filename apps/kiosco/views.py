@@ -1,6 +1,9 @@
 import base64
+import hmac
+import logging
 from functools import lru_cache
 
+from django.conf import settings
 from django.http import HttpResponse, HttpResponseForbidden
 from django.shortcuts import render
 from rest_framework import status
@@ -9,9 +12,11 @@ from rest_framework.views import APIView
 
 from apps.facturacion_externa.reporte import LOGO
 
-from . import avisos, galeria, services
-from .models import PagoKiosco
-from .permissions import ConsultasPorKiosco, EsKiosco, ip_cliente, ip_permitida
+from . import avisos, galeria, salud, services
+from .models import PagoKiosco, PantallaKiosco
+from .permissions import ConsultasPorKiosco, EsKiosco, IntentosDePin, ip_cliente, ip_permitida
+
+logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
@@ -39,6 +44,33 @@ class _KioscoView(APIView):
 
     def _pago(self, request, alias):
         return PagoKiosco.objects.select_related("solicitud").filter(alias=alias, kiosco=request.kiosco).first()
+
+
+class EstadoView(_KioscoView):
+    """GET /api/kiosco/estado/ -- la pantalla pregunta cada minuto si puede cobrar (apps/kiosco/salud.py).
+    De paso el gateway sabe que la pantalla sigue prendida."""
+
+    def get(self, request):
+        pantalla = salud.registrar_contacto(request.kiosco)
+        return Response(salud.para_pantalla(request.kiosco, pantalla))
+
+
+class TecnicoView(_KioscoView):
+    """POST /api/kiosco/tecnico/ {pin} -- pantalla del personal: revisa todo de nuevo (sin caché) y
+    devuelve el detalle técnico. PIN en KIOSCO_PIN_TECNICO; pocos intentos por minuto."""
+
+    throttle_classes = [IntentosDePin]
+
+    def post(self, request):
+        esperado = settings.KIOSCO_PIN_TECNICO
+        pin = str((request.data or {}).get("pin") or "") if isinstance(request.data, dict) else ""
+        if not esperado:
+            return Response({"error": "La pantalla técnica no está habilitada."}, status=status.HTTP_404_NOT_FOUND)
+        if not hmac.compare_digest(esperado.encode(), pin.encode()):
+            logger.warning("kiosco.pin_incorrecto pantalla=%s ip=%s", request.kiosco, ip_cliente(request))
+            return Response({"error": "PIN incorrecto."}, status=status.HTTP_403_FORBIDDEN)
+        pantalla = salud.registrar_contacto(request.kiosco)
+        return Response(salud.para_tecnico(request.kiosco, pantalla))
 
 
 class AvisosView(_KioscoView):
@@ -100,6 +132,11 @@ class GenerarQrView(_KioscoView):
             cantidad = 0
         if not nro or cantidad < 1:
             return Response({"error": "Faltan el número de cliente o los meses a pagar."}, status=status.HTTP_400_BAD_REQUEST)
+        # Aunque la pantalla no se haya enterado todavía: sin lo necesario para cobrar, no hay QR.
+        pantalla = PantallaKiosco.objects.filter(nombre=request.kiosco).first()
+        estado = salud.para_pantalla(request.kiosco, pantalla)
+        if estado["estado"] == salud.ROJO:
+            return Response({"error": estado["mensaje"], "estado": estado}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         try:
             pago, imagen = services.generar_qr(request.kiosco, nro, cantidad)
         except services.KioscoError as exc:

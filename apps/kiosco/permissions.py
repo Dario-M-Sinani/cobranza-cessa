@@ -51,6 +51,15 @@ class EsKiosco(permissions.BasePermission):
         return True
 
 
+class IntentosDePin(SimpleRateThrottle):
+    """Tope de intentos de PIN de la pantalla técnica por pantalla (KIOSCO_PIN_INTENTOS_POR_MINUTO)."""
+
+    scope = "kiosco_pin"
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {"scope": self.scope, "ident": getattr(request, "kiosco", ip_cliente(request))}
+
+
 class ConsultasPorKiosco(SimpleRateThrottle):
     """Tope de consultas de deuda por pantalla (KIOSCO_CONSULTAS_POR_MINUTO): la pantalla
     muestra el nombre con solo el N° de cliente, así que no se deja recorrer números en serie."""

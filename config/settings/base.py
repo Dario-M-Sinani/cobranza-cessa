@@ -119,6 +119,8 @@ REST_FRAMEWORK = {
     # Solo las vistas que lo piden (apps/kiosco/permissions.py: ConsultasPorKiosco).
     "DEFAULT_THROTTLE_RATES": {
         "kiosco_consulta": env("KIOSCO_CONSULTAS_POR_MINUTO", default="30/min"),
+        # Intentos de PIN de la pantalla técnica del kiosco, por pantalla.
+        "kiosco_pin": env("KIOSCO_PIN_INTENTOS_POR_MINUTO", default="5/min"),
     },
 }
 
@@ -287,6 +289,24 @@ KIOSCO_WHATSAPP_URL = env("KIOSCO_WHATSAPP_URL", default="")
 KIOSCO_WHATSAPP_API_KEY = env("KIOSCO_WHATSAPP_API_KEY", default="")
 CELERY_BEAT_SCHEDULE["revisar-pagos-kiosco"] = {
     "task": "apps.kiosco.tasks.revisar_pagos_kiosco",
+    "schedule": 60.0,
+}
+# Estado de cada pantalla antes de cobrar (apps/kiosco/salud.py). Impresora térmica de red por
+# pantalla, para preguntarle si tiene papel: KIOSCO_IMPRESORAS="oficina-central=10.1.5.20:9100".
+# Sin impresora de red, el estado del papel no se revisa (la pantalla imprime por Chrome).
+KIOSCO_IMPRESORAS = dict(
+    par.strip().split("=", 1) for par in env("KIOSCO_IMPRESORAS", default="").split(",") if "=" in par
+)
+# Horario de la caja del SIIC que factura el kiosco: fuera de él se cobra igual y la factura sale
+# cuando abre (la pantalla lo avisa antes del QR). También es cuando se avisa si una pantalla se apaga.
+KIOSCO_HORARIO_CAJA = env("KIOSCO_HORARIO_CAJA", default="07:50-18:50")
+# PIN del personal para la pantalla técnica del kiosco (5 toques en el encabezado): estado detallado,
+# revisar de nuevo e imprimir un ticket de prueba. Vacío = pantalla técnica deshabilitada.
+KIOSCO_PIN_TECNICO = env("KIOSCO_PIN_TECNICO", default="")
+# Minutos sin noticias de una pantalla (en horario) antes de avisar por Telegram.
+KIOSCO_MINUTOS_SIN_CONTACTO = env.int("KIOSCO_MINUTOS_SIN_CONTACTO", default=5)
+CELERY_BEAT_SCHEDULE["vigilar-kioscos"] = {
+    "task": "apps.kiosco.tasks.vigilar_kioscos",
     "schedule": 60.0,
 }
 

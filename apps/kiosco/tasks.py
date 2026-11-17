@@ -38,3 +38,12 @@ def revisar_pagos_kiosco():
         if services.facturar(solicitud).estado == SolicitudLiquidacion.Estado.FACTURADO:
             facturados += 1
     return facturados
+
+
+@shared_task
+def vigilar_kioscos():
+    """Cada 60 s: revisa lo que cada pantalla necesita para cobrar y avisa por Telegram los cambios
+    (apps/kiosco/salud.py). Su última pasada también le dice a la pantalla que el worker corre."""
+    from . import salud
+
+    return salud.vigilar()

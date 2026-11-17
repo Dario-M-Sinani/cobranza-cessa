@@ -4,17 +4,23 @@ import base64
 from datetime import datetime, timedelta
 from decimal import Decimal
 
+import socketserver
+import threading
+
 import pytest
+from django.core.cache import cache
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.facturacion_externa import services as facturacion_services
 from apps.facturacion_externa.models import AvisoSip, SolicitudLiquidacion
 from apps.facturacion_externa.tests import FakeCobranzasBancoClientDeTest
-from services.mc4_client import EstadoPagoMC4, EstadoTransaccionQR, MC4RequestError, ResultadoQR
+from services.cobranzas_banco_client import CobranzasBancoAuthError
+from services.mc4_client import EstadoPagoMC4, EstadoTransaccionQR, MC4AuthenticationError, MC4RequestError, ResultadoQR
 
-from . import services, tasks
-from .models import PagoKiosco
+from . import impresora, salud, services, tasks
+from .management.commands.simular_impresora import RESPUESTAS
+from .models import PagoKiosco, PantallaKiosco
 
 TOKEN = "token-de-la-pantalla"
 INTERNA = {"HTTP_X_KIOSCO_TOKEN": TOKEN, "HTTP_X_REAL_IP": "10.10.20.5"}
@@ -80,6 +86,11 @@ def config(settings, monkeypatch):
     settings.ALERTAS_TELEGRAM_BOT_TOKEN = ""
     settings.ALERTAS_EMAIL_DESTINOS = []
     settings.CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+    # Estado de la pantalla (salud.py): todo en orden salvo que el test diga otra cosa.
+    settings.KIOSCO_IMPRESORAS = {}
+    settings.KIOSCO_HORARIO_CAJA = "00:00-23:59:59"
+    cache.clear()
+    monkeypatch.setattr(services, "get_cobranzas_banco_client", lambda: FakeCobranzasBancoClientDeTest())
 
     deuda = {"body": {"nro_cliente": "153896", "nombre": "PEREZ MAMANI JUAN", "deuda": list(DEUDA)}}
 
@@ -791,3 +802,232 @@ class TestTareaPeriodica:
 
 def test_origen_del_alias():
     assert SolicitudLiquidacion.origen_de_alias("CESSA-KIO-20261109101010-AB12") == SolicitudLiquidacion.Origen.KIOSCO
+
+
+# ---------------------------------------------------------------- estado antes de cobrar (salud.py)
+
+@pytest.fixture
+def impresora_de_red():
+    """Impresora ESC/POS simulada en un puerto libre: `fijar(estado)` cambia lo que contesta."""
+    actual = {"estado": "ok", "bytes": None}
+
+    class Atender(socketserver.BaseRequestHandler):
+        def handle(self):
+            while True:
+                pedido = self.request.recv(3)
+                if len(pedido) < 3:
+                    return
+                propias = actual["bytes"] or RESPUESTAS[actual["estado"]]
+                self.request.sendall(bytes([propias[pedido[2]]]))
+
+    servidor = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Atender)
+    hilo = threading.Thread(target=servidor.serve_forever, daemon=True)
+    hilo.start()
+
+    def fijar(estado=None, respuestas=None):
+        actual["estado"], actual["bytes"] = estado or "ok", respuestas
+        cache.clear()
+
+    fijar.direccion = f"127.0.0.1:{servidor.server_address[1]}"
+    yield fijar
+    servidor.shutdown()
+    servidor.server_close()
+
+
+class CobranzasConCaja(FakeCobranzasBancoClientDeTest):
+    def __init__(self, estado="ABIERTA", falla=None):
+        super().__init__()
+        self._estado, self._falla = estado, falla
+
+    def estado_caja(self):
+        if self._falla:
+            raise self._falla
+        return self._estado
+
+
+def _estado():
+    respuesta = _cliente().get("/api/kiosco/estado/", **INTERNA)
+    assert respuesta.status_code == 200
+    return respuesta.json()
+
+
+class TestImpresora:
+    @pytest.mark.parametrize("estado", ["ok", "poco_papel", "sin_papel", "tapa_abierta", "error"])
+    def test_lee_el_estado_del_simulador(self, impresora_de_red, estado):
+        impresora_de_red(estado)
+        assert impresora.estado(impresora_de_red.direccion) == estado
+
+    def test_apagada(self):
+        assert impresora.estado("127.0.0.1:1", timeout=0.5) == impresora.NO_RESPONDE
+
+    def test_otro_equipo_en_el_puerto(self, impresora_de_red):
+        impresora_de_red(respuestas={1: 0xFF, 2: 0xFF, 4: 0xFF})
+        assert impresora.estado(impresora_de_red.direccion) == impresora.DESCONOCIDA
+
+
+@pytest.mark.django_db
+class TestEstadoPantalla:
+    def test_todo_en_orden(self, sip):
+        datos = _estado()
+        assert {k: datos[k] for k in ("estado", "mensaje", "avisos", "puede_imprimir")} == {
+            "estado": "verde", "mensaje": "", "avisos": [], "puede_imprimir": True}
+        assert PantallaKiosco.objects.get(nombre="oficina-central").ultimo_contacto is not None
+
+    def test_lista_para_la_pantalla_de_arranque_sin_detalle_tecnico(self, sip):
+        filas = _estado()["revisiones"]
+        assert [f["clave"] for f in filas] == ["base", "cobranzas", "caja", "sip", "worker", "impresora"]
+        assert all("detalle" not in f for f in filas)
+        assert filas[-1]["estado"] == "sin_revisar"  # sin impresora de red no se puede saber el papel
+
+    def test_sin_token_no_responde(self):
+        assert _cliente().get("/api/kiosco/estado/", HTTP_X_REAL_IP="10.10.20.5").status_code == 403
+
+    def test_sip_sin_login_no_se_cobra(self, sip, monkeypatch):
+        def falla():
+            raise MC4AuthenticationError("HTTP 401")
+
+        sip.verificar_conexion = falla
+        datos = _estado()
+        assert datos["estado"] == "rojo" and datos["mensaje"] == salud.MENSAJE_FUERA_DE_SERVICIO
+        respuesta = _cliente().post("/api/kiosco/qr/", {"nro_cliente": "153896", "cantidad": 1}, format="json", **INTERNA)
+        assert respuesta.status_code == 503
+        assert sip.generados == []
+
+    def test_cobranzas_sin_login_no_se_cobra(self, sip, monkeypatch):
+        monkeypatch.setattr(services, "get_cobranzas_banco_client", lambda: CobranzasConCaja(falla=CobranzasBancoAuthError("HTTP 401")))
+        assert _estado()["estado"] == "rojo"
+
+    def test_caja_cerrada_cobra_con_aviso(self, sip, monkeypatch):
+        monkeypatch.setattr(services, "get_cobranzas_banco_client", lambda: CobranzasConCaja("CERRADA"))
+        datos = _estado()
+        assert datos["estado"] == "amarillo"
+        assert datos["avisos"] == [salud.AVISO_FACTURA_DESPUES]
+        respuesta = _cliente().post("/api/kiosco/qr/", {"nro_cliente": "153896", "cantidad": 1}, format="json", **INTERNA)
+        assert respuesta.status_code == 201
+
+    def test_caja_sin_abrir_esta_bien(self, sip, monkeypatch):
+        monkeypatch.setattr(services, "get_cobranzas_banco_client", lambda: CobranzasConCaja("SIN_ABRIR"))
+        assert _estado()["estado"] == "verde"
+
+    def test_fuera_de_horario_avisa_que_la_factura_sale_despues(self, sip, monkeypatch):
+        monkeypatch.setattr(salud, "en_horario", lambda ahora=None: False)
+        datos = _estado()
+        assert datos["estado"] == "amarillo" and datos["avisos"] == [salud.AVISO_FACTURA_DESPUES]
+
+    def test_worker_detenido_no_se_cobra(self, sip):
+        PantallaKiosco.objects.create(nombre="oficina-central", revisada_en=timezone.now() - timedelta(minutes=10))
+        assert _estado()["estado"] == "rojo"
+
+    def test_pantalla_nueva_no_espera_al_worker(self, sip):
+        assert _estado()["estado"] == "verde"  # recién creada: el worker todavía no pasó
+
+    def test_impresora_sin_papel_cobra_sin_ticket(self, sip, settings, impresora_de_red):
+        settings.KIOSCO_IMPRESORAS = {"oficina-central": impresora_de_red.direccion}
+        impresora_de_red("sin_papel")
+        datos = _estado()
+        assert datos["estado"] == "amarillo"
+        assert datos["puede_imprimir"] is False
+        assert datos["avisos"] == [salud.AVISO_SIN_TICKET]
+
+    def test_poco_papel_cobra_normal(self, sip, settings, impresora_de_red):
+        settings.KIOSCO_IMPRESORAS = {"oficina-central": impresora_de_red.direccion}
+        impresora_de_red("poco_papel")
+        datos = _estado()
+        assert (datos["estado"], datos["avisos"], datos["puede_imprimir"]) == ("verde", [], True)
+        assert datos["revisiones"][-1]["texto"] == "queda poco papel"
+
+
+@pytest.mark.django_db
+class TestPantallaTecnica:
+    def _entrar(self, pin):
+        return _cliente().post("/api/kiosco/tecnico/", {"pin": pin}, format="json", **INTERNA)
+
+    def test_sin_pin_configurado_no_existe(self, sip, settings):
+        settings.KIOSCO_PIN_TECNICO = ""
+        assert self._entrar("").status_code == 404
+
+    def test_pin_incorrecto(self, sip, settings):
+        settings.KIOSCO_PIN_TECNICO = "4321"
+        respuesta = self._entrar("1234")
+        assert respuesta.status_code == 403 and "revisiones" not in respuesta.json()
+
+    def test_pin_correcto_muestra_el_detalle_tecnico(self, sip, settings):
+        settings.KIOSCO_PIN_TECNICO = "4321"
+
+        def falla():
+            raise MC4AuthenticationError("HTTP 401 usuario bloqueado")
+
+        sip.verificar_conexion = falla
+        datos = self._entrar("4321").json()
+        assert datos["pantalla"] == "oficina-central" and datos["estado"] == "rojo"
+        fila_sip = next(f for f in datos["revisiones"] if f["clave"] == "sip")
+        assert "usuario bloqueado" in fila_sip["detalle"]
+
+    def test_revisa_sin_cache(self, sip, settings):
+        settings.KIOSCO_PIN_TECNICO = "4321"
+        assert _estado()["estado"] == "verde"  # queda en caché
+
+        def falla():
+            raise MC4AuthenticationError("HTTP 401")
+
+        sip.verificar_conexion = falla
+        assert _estado()["estado"] == "verde"  # todavía la caché
+        assert self._entrar("4321").json()["estado"] == "rojo"
+
+    def test_pocos_intentos_por_minuto(self, sip, settings):
+        settings.KIOSCO_PIN_TECNICO = "4321"
+        codigos = [self._entrar("0000").status_code for _ in range(6)]
+        assert codigos[:5] == [403] * 5 and codigos[5] == 429
+
+
+@pytest.mark.django_db
+class TestVigilancia:
+    @pytest.fixture
+    def enviados(self, monkeypatch):
+        lista = []
+        monkeypatch.setattr(salud, "notificar", lambda asunto, texto: lista.append((asunto, texto)) or 1)
+        return lista
+
+    def test_avisa_cuando_el_problema_sigue_en_la_segunda_pasada(self, sip, settings, impresora_de_red, enviados):
+        settings.KIOSCO_IMPRESORAS = {"oficina-central": impresora_de_red.direccion}
+        impresora_de_red("sin_papel")
+        salud.vigilar()
+        assert enviados == []  # un corte de segundos no avisa
+        salud.vigilar()
+        assert len(enviados) == 1 and "cobra con avisos" in enviados[0][0] and "sin papel" in enviados[0][1]
+        salud.vigilar()
+        assert len(enviados) == 1  # no repite
+
+        impresora_de_red("ok")
+        salud.vigilar()
+        salud.vigilar()
+        assert len(enviados) == 2 and "todo normal" in enviados[1][0]
+
+    def test_problema_que_se_resuelve_solo_no_avisa(self, sip, settings, impresora_de_red, enviados):
+        settings.KIOSCO_IMPRESORAS = {"oficina-central": impresora_de_red.direccion}
+        impresora_de_red("tapa_abierta")
+        salud.vigilar()
+        impresora_de_red("ok")
+        salud.vigilar()
+        salud.vigilar()
+        assert enviados == []
+
+    def test_pantalla_apagada_en_horario(self, sip, enviados):
+        PantallaKiosco.objects.create(nombre="oficina-central", ultimo_contacto=timezone.now() - timedelta(minutes=20))
+        salud.vigilar()
+        salud.vigilar()
+        assert len(enviados) == 1 and "fuera de servicio" in enviados[0][0] and "no da señales" in enviados[0][1]
+
+    def test_pantalla_apagada_fuera_de_horario_no_avisa(self, sip, monkeypatch, enviados):
+        monkeypatch.setattr(salud, "en_horario", lambda ahora=None: False)
+        PantallaKiosco.objects.create(nombre="oficina-central", ultimo_contacto=timezone.now() - timedelta(minutes=20))
+        salud.vigilar()
+        salud.vigilar()
+        # Ni la pantalla apagada ni el "fuera de horario" de la caja se avisan: es lo esperado de noche.
+        assert enviados == []
+
+    def test_la_tarea_marca_que_el_worker_corre(self, sip):
+        PantallaKiosco.objects.create(nombre="oficina-central", revisada_en=timezone.now() - timedelta(minutes=10))
+        tasks.vigilar_kioscos()
+        cache.clear()
+        assert _estado()["estado"] == "verde"

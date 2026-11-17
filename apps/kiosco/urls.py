@@ -8,15 +8,19 @@ from .views import (
     EnviarCorreoView,
     EnviarWhatsappView,
     EstadoQrView,
+    EstadoView,
     FacturaPdfView,
     FotoView,
     GaleriaView,
     GenerarQrView,
     ReciboView,
+    TecnicoView,
 )
 
 # Bajo /api/kiosco/ y NO bajo /api/externo/: test01 publica /prod/api/externo/ a internet.
 urlpatterns = [
+    path("estado/", EstadoView.as_view(), name="kiosco-estado"),
+    path("tecnico/", TecnicoView.as_view(), name="kiosco-tecnico"),
     path("avisos/", AvisosView.as_view(), name="kiosco-avisos"),
     path("galeria/", GaleriaView.as_view(), name="kiosco-galeria"),
     path("galeria/<int:id_foto>/", FotoView.as_view(), name="kiosco-foto"),

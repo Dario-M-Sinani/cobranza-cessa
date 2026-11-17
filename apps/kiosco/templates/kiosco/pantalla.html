@@ -158,6 +158,11 @@
   .vacio-deuda { padding: 28px; font-size: clamp(20px, 3vh, 26px); text-align: center; }
   .vacio-deuda.ok { background: var(--verde-50); color: var(--verde-800); }
   .vacio-deuda.aviso { background: var(--ambar-50); color: var(--ambar-900); }
+  /* Avisos antes del QR (sin impresora, factura más tarde): el cliente decide si paga igual. */
+  .avisos-pago { width: 100%; display: none; flex-direction: column; gap: 8px; }
+  .avisos-pago.visible { display: flex; }
+  .avisos-pago div { background: var(--ambar-50); border: 1px solid var(--ambar-200); color: var(--ambar-900); border-radius: 14px;
+    padding: 10px 18px; font-size: clamp(16px, 2.2vh, 20px); font-weight: 600; }
 
   /* QR = modal de pago de la web. */
   .qr-tarjeta { background: #fff; border: 1px solid var(--gris-200); border-radius: 24px; box-shadow: 0 20px 40px rgba(0,51,95,.15); padding: clamp(14px, 2.4vh, 28px) 40px; display: flex; flex-direction: column; align-items: center; gap: clamp(8px, 1.6vh, 16px); }
@@ -263,6 +268,49 @@
   footer { background: rgba(0,20,40,.6); color: var(--azul-200); border-top-color: rgba(255,255,255,.1); }
 
   #impresora { position: fixed; width: 0; height: 0; border: 0; left: -9999px; top: 0; }
+
+  /* Arranque y pantalla técnica: lista de revisiones (salud.py). */
+  .revisiones { width: min(720px, 100%); }
+  .revision { display: flex; align-items: center; gap: 14px; padding: clamp(10px, 1.6vh, 14px) 22px; border-bottom: 1px solid var(--gris-200);
+    font-size: clamp(17px, 2.4vh, 21px); }
+  .revision:last-child { border-bottom: 0; }
+  .revision .marca-r { width: 34px; height: 34px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+    font-weight: 800; background: var(--gris-50); color: var(--gris-500); border: 2px solid var(--gris-200); }
+  .revision.verde .marca-r { background: var(--verde-100); color: var(--verde-700); border-color: var(--verde-200); }
+  .revision.amarillo .marca-r { background: var(--ambar-50); color: var(--ambar-700); border-color: var(--ambar-200); }
+  .revision.rojo .marca-r { background: var(--rojo-50); color: var(--rojo-600); border-color: #fecaca; }
+  .revision .nombre-r { font-weight: 700; color: var(--azul-950); }
+  .revision .detalle-r { display: block; font-size: 13px; font-weight: 400; color: var(--gris-500); word-break: break-word; }
+  .revision .texto-r { margin-left: auto; text-align: right; color: var(--gris-600); }
+  .revision.rojo .texto-r { color: var(--rojo-600); font-weight: 700; }
+  .revision.amarillo .texto-r { color: var(--ambar-900); font-weight: 700; }
+  #a-pie { font-size: clamp(18px, 2.6vh, 22px); min-height: 1.4em; }
+  /* Arranque "vistoso": cada revisión espera girando y se marca de a una, con una barra de avance. */
+  .revision { transition: background-color .4s ease, opacity .4s ease; }
+  .revision.esperando { opacity: .55; }
+  .revision.esperando .texto-r { font-style: italic; color: var(--gris-500); }
+  .revision .marca-r .girando { width: 20px; height: 20px; border-width: 3px; }
+  .revision.recien { background: var(--azul-50); }
+  .revision.recien .marca-r { animation: marcar .45s cubic-bezier(.2, 1.4, .4, 1); }
+  .revision.recien .texto-r { animation: aparecer .4s ease-out; }
+  @keyframes marcar { from { transform: scale(.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  @keyframes aparecer { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
+  .progreso { width: min(720px, 100%); height: 10px; border-radius: 999px; background: rgba(255,255,255,.18); overflow: hidden; }
+  .progreso span { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--ambar-400); transition: width .6s ease; }
+  .progreso.verde span { background: #4ade80; }
+  .progreso.rojo span { background: #f87171; }
+
+  #tecnico { position: fixed; inset: 0; z-index: 60; display: none; background: rgba(0,20,40,.88); align-items: center; justify-content: center; padding: 3vh; }
+  #tecnico.visible { display: flex; }
+  #tecnico .panel { background: #fff; border-radius: 22px; padding: clamp(16px, 2.6vh, 28px) 28px; width: min(820px, 100%); max-height: 100%; overflow: auto;
+    display: flex; flex-direction: column; align-items: center; gap: 16px; }
+  #tecnico h3 { margin: 0; font-size: clamp(22px, 3.2vh, 30px); color: var(--azul-950); }
+  #tecnico .pin { font-family: Consolas, monospace; font-size: 40px; letter-spacing: 14px; min-height: 52px; color: var(--azul-950); }
+  #tecnico .teclado button { background: var(--azul-50); }
+  #tecnico .teclado button.ok { background: var(--ambar-500); }
+  #tecnico .info { width: 100%; font-size: 14px; color: var(--gris-600); display: flex; flex-wrap: wrap; gap: 4px 18px; justify-content: center; }
+  #tecnico .error-pin { color: var(--rojo-600); font-weight: 700; min-height: 1.2em; }
+  #tecnico .acciones-resultado { flex-wrap: wrap; justify-content: center; }
 </style>
 </head>
 <body>
@@ -296,6 +344,19 @@
     <p class="ayuda">Falta el código de esta pantalla. Avisa al personal de CESSA.</p>
   </section>
 
+  <section class="pantalla" id="p-arranque">
+    <h2>Preparando el cajero…</h2>
+    <div class="tarjeta revisiones" id="a-lista"></div>
+    <div class="progreso" id="a-progreso"><span id="a-barra"></span></div>
+    <p class="ayuda" id="a-pie"></p>
+  </section>
+
+  <section class="pantalla" id="p-fuera">
+    <div class="icono aviso">!</div>
+    <h2>Cajero fuera de servicio</h2>
+    <p class="ayuda" id="f-texto"></p>
+  </section>
+
   <section class="pantalla" id="p-inicio">
     <span class="pastilla">Pago rápido · QR CESSA</span>
     <h2>Consulta y paga tu deuda</h2>
@@ -322,6 +383,7 @@
       <div class="meses" id="d-meses"></div>
     </div>
     <p class="ayuda" id="d-ayuda">Toca hasta qué mes quieres pagar (siempre desde el más antiguo). Para quitar un mes, toca el último marcado.</p>
+    <div class="avisos-pago" id="d-avisos"></div>
     <div class="resumen" id="d-resumen">
       <div class="total" id="d-total"></div>
       <div class="acciones">
@@ -368,6 +430,32 @@
 
 <footer>Compañía Eléctrica Sucre S.A. · NIT 1000831029</footer>
 <div id="aviso" role="alert"></div>
+<!-- Pantalla técnica del personal: 5 toques seguidos en el encabezado + PIN (KIOSCO_PIN_TECNICO). -->
+<div id="tecnico" aria-hidden="true">
+  <div class="panel" id="t-pin">
+    <h3>Personal de CESSA</h3>
+    <div class="pin" id="t-pin-texto"></div>
+    <div class="error-pin" id="t-pin-error"></div>
+    <div class="teclado" id="t-teclado">
+      <button data-d="1">1</button><button data-d="2">2</button><button data-d="3">3</button>
+      <button data-d="4">4</button><button data-d="5">5</button><button data-d="6">6</button>
+      <button data-d="7">7</button><button data-d="8">8</button><button data-d="9">9</button>
+      <button class="borrar" data-d="borrar">Borrar</button><button data-d="0">0</button>
+      <button class="ok" data-d="ok">Entrar</button>
+    </div>
+    <button class="secundario" data-tecnico="cerrar">Cancelar</button>
+  </div>
+  <div class="panel" id="t-estado">
+    <h3 id="t-titulo">Estado del cajero</h3>
+    <div class="info" id="t-info"></div>
+    <div class="tarjeta revisiones" id="t-lista"></div>
+    <div class="acciones-resultado">
+      <button class="secundario" id="t-revisar">Revisar de nuevo</button>
+      <button class="secundario" id="t-probar">Imprimir ticket de prueba</button>
+      <button class="primario" data-tecnico="cerrar">Cerrar</button>
+    </div>
+  </div>
+</div>
 <iframe id="impresora" title="Impresión" aria-hidden="true" tabindex="-1"></iframe>
 
 <script>
@@ -479,7 +567,7 @@
     detenerQr();
     estado = estadoInicial();
     pintarNumero();
-    mostrar("p-inicio");
+    mostrar(salud.estado === "rojo" ? "p-fuera" : "p-inicio");
   }
 
   function reiniciarInactividad() {
@@ -563,6 +651,7 @@
 
   function pintarDeuda() {
     var c = estado.cliente;
+    pintarAvisosSalud();
     $("d-nombre").textContent = c.nombre || "Cliente";
     $("d-nro").textContent = c.nro_cliente;
     var lista = $("d-meses");
@@ -641,6 +730,7 @@
       sondear();
     }, function (error) {
       avisar(error.message);
+      if (error.status === 503) consultarEstado();  // el servidor ya sabe que no se puede cobrar
     }).then(function () {
       boton.disabled = false;
       boton.textContent = "Pagar con QR";
@@ -822,7 +912,8 @@
     // Antes de imprimir se pregunta (no se gasta papel si el cliente no lo quiere), salvo
     // confirmar=no. Sin respuesta, la pantalla vuelve sola al inicio.
     if (pagado && !estado.impreso && estado.cobro && impresion !== "ninguna") {
-      if (confirmarImpresion) $("r-pregunta").style.display = "";
+      if (!salud.puede_imprimir) pintarImpresion("Hoy no podemos imprimir tu recibo. Descarga tu factura en la app de CESSA o en www.cessa.com.bo.");
+      else if (confirmarImpresion) $("r-pregunta").style.display = "";
       else $("r-si-imprimir").click();
     }
 
@@ -922,12 +1013,262 @@
     fotos[(i + 1) % fotos.length].classList.add("activa");
   }
 
+  // ---------------------------------------------------------------- estado del cajero
+  // Cada minuto se pregunta al gateway si se puede cobrar (SIP, cobranzas, worker, impresora de red).
+  // Rojo: no se ofrece pagar (si alguien está a mitad de un pago, se lo deja terminar). Amarillo:
+  // se cobra, pero los avisos se muestran antes del QR.
+  var ESTADO_MS = 60 * 1000;
+  var SIN_CONEXION = "Este cajero perdió la conexión. Intenta de nuevo en unos minutos o acércate a ventanilla.";
+  var salud = { estado: "verde", mensaje: "", avisos: [], puede_imprimir: true };
+  var fallasEstado = 0;
+
+  function pintarAvisosSalud() {
+    var caja = $("d-avisos"), c = estado.cliente;
+    var mostrarAvisos = c && c.deuda.length && c.cantidades.length && salud.avisos.length;
+    caja.innerHTML = "";
+    caja.classList.toggle("visible", !!mostrarAvisos);
+    if (!mostrarAvisos) return;
+    salud.avisos.forEach(function (texto) {
+      var item = document.createElement("div");
+      item.textContent = "ⓘ " + texto;
+      caja.appendChild(item);
+    });
+  }
+
+  function aplicarSalud() {
+    $("f-texto").textContent = salud.mensaje || SIN_CONEXION;
+    var activa = document.querySelector(".pantalla.activa");
+    var id = activa ? activa.id : "";
+    if (salud.estado === "rojo" && id === "p-inicio" && !estado.numero) {
+      $("protector").classList.remove("visible");  // no invitar a "tocar para empezar"
+      mostrar("p-fuera");
+    }
+    else if (salud.estado !== "rojo" && id === "p-fuera") irAlInicio();
+    if (id === "p-deuda") pintarAvisosSalud();
+  }
+
+  function guardarSalud(datos) {
+    fallasEstado = 0;
+    salud = { estado: datos.estado || "verde", mensaje: datos.mensaje || "", avisos: datos.avisos || [],
+              puede_imprimir: datos.puede_imprimir !== false };
+  }
+
+  function consultarEstado() {
+    api("GET", "/estado/").then(function (datos) {
+      guardarSalud(datos);
+      aplicarSalud();
+    }, function () {
+      // Un corte suelto no apaga la pantalla; dos seguidos (2 minutos) sí.
+      if (++fallasEstado < 2) return;
+      salud = { estado: "rojo", mensaje: SIN_CONEXION, avisos: [], puede_imprimir: salud.puede_imprimir };
+      aplicarSalud();
+    });
+  }
+
+  // Lista de revisiones (arranque y pantalla técnica). La primera fila es la propia conexión.
+  var ICONOS = { verde: "✓", amarillo: "!", rojo: "✕", sin_revisar: "–", esperando: "…" };
+  var CONEXION_OK = { titulo: "Conexión con el servidor", estado: "verde", texto: "en línea" };
+
+  function pintarRevisiones(contenedor, filas, conDetalle) {
+    contenedor.innerHTML = "";
+    filas.forEach(function (f) { contenedor.appendChild(crearFila(f, conDetalle)); });
+  }
+
+  function crearFila(f, conDetalle) {
+      var fila = document.createElement("div");
+      fila.className = "revision " + f.estado;
+      var marca = document.createElement("span");
+      marca.className = "marca-r";
+      if (f.estado === "esperando") marca.innerHTML = '<div class="girando"></div>';
+      else marca.textContent = ICONOS[f.estado] || "?";
+      var nombre = document.createElement("span");
+      nombre.className = "nombre-r";
+      nombre.textContent = f.titulo;
+      if (conDetalle && f.detalle) {
+        var detalle = document.createElement("span");
+        detalle.className = "detalle-r";
+        detalle.textContent = f.detalle;
+        nombre.appendChild(detalle);
+      }
+      var texto = document.createElement("span");
+      texto.className = "texto-r";
+      texto.textContent = f.texto;
+      fila.appendChild(marca);
+      fila.appendChild(nombre);
+      fila.appendChild(texto);
+      return fila;
+  }
+
+  // ---------------------------------------------------------------- revisión al arrancar
+  // Al abrir la página se muestra qué se revisó, de a una revisión (PASO_MS cada una) con una barra
+  // de avance. Después: verde abre en 4 s; amarillo en 8 s (cobra con avisos); rojo pasa a "fuera
+  // de servicio" y la consulta de cada minuto la vuelve a abrir.
+  var PASO_MS = 900;
+
+  function esperando(f) { return { titulo: f.titulo, estado: "esperando", texto: "revisando…" }; }
+
+  function avance(hechas, total, color) {
+    $("a-barra").style.width = Math.round(100 * hechas / Math.max(total, 1)) + "%";
+    $("a-progreso").className = "progreso" + (color ? " " + color : "");
+  }
+
+  function arrancar() {
+    mostrar("p-arranque");
+    pintarRevisiones($("a-lista"), [esperando(CONEXION_OK)], false);
+    avance(0, 1);
+    $("a-pie").textContent = "Conectando con el servidor…";
+    var desde = Date.now();
+    api("GET", "/estado/").then(function (datos) {
+      guardarSalud(datos);
+      var filas = [CONEXION_OK].concat(datos.revisiones || []);
+      // La respuesta llega de una vez; se muestra con pausa para que se alcance a leer.
+      setTimeout(function () {
+        pintarRevisiones($("a-lista"), filas.map(esperando), false);
+        revelar(filas, 0);
+      }, Math.max(0, PASO_MS - (Date.now() - desde)));
+    }, function () {
+      pintarRevisiones($("a-lista"), [{ titulo: CONEXION_OK.titulo, estado: "rojo", texto: "sin respuesta" }], false);
+      avance(1, 1, "rojo");
+      $("a-pie").textContent = "Sin conexión con el servidor. Reintentando…";
+      setTimeout(arrancar, 15000);
+    });
+  }
+
+  function revelar(filas, i) {
+    if (!$("p-arranque").classList.contains("activa")) return;
+    if (i >= filas.length) {
+      avance(filas.length, filas.length, salud.estado === "amarillo" ? "" : salud.estado);
+      return setTimeout(function () { cuentaArranque(salud.estado === "verde" ? 4 : 8); }, 500);
+    }
+    var lista = $("a-lista");
+    var nueva = crearFila(filas[i], false);
+    nueva.classList.add("recien");
+    lista.replaceChild(nueva, lista.children[i]);
+    setTimeout(function () { nueva.classList.remove("recien"); }, PASO_MS + 300);
+    avance(i + 1, filas.length);
+    $("a-pie").textContent = i + 1 < filas.length ? "Revisando: " + filas[i + 1].titulo + "…" : "Terminando…";
+    setTimeout(function () { revelar(filas, i + 1); }, PASO_MS);
+  }
+
+  function cuentaArranque(segundos) {
+    if (!$("p-arranque").classList.contains("activa")) return;
+    if (segundos <= 0) return irAlInicio();  // en rojo, irAlInicio muestra "fuera de servicio"
+    var resumen = { verde: "Todo listo", amarillo: "Se puede cobrar, con avisos", rojo: "Por ahora no se puede cobrar" };
+    $("a-pie").textContent = resumen[salud.estado] + " · continúa en " + segundos + " s";
+    setTimeout(function () { cuentaArranque(segundos - 1); }, 1000);
+  }
+
+  // ---------------------------------------------------------------- pantalla técnica (PIN)
+  // 5 toques seguidos (en 3 s) en el encabezado → PIN del personal → estado detallado, revisar de
+  // nuevo e imprimir un ticket de prueba. Se cierra sola a los 2 minutos sin tocar.
+  var TECNICO_MS = 2 * 60 * 1000;
+  var toquesEncabezado = [], pinEscrito = "", pinValido = "", temporizadorTecnico = null;
+
+  document.querySelector("header").addEventListener("click", function () {
+    var ahora = Date.now();
+    toquesEncabezado = toquesEncabezado.filter(function (t) { return ahora - t < 3000; });
+    toquesEncabezado.push(ahora);
+    if (toquesEncabezado.length >= 5) {
+      toquesEncabezado = [];
+      abrirTecnico();
+    }
+  });
+
+  function pintarPin() { $("t-pin-texto").textContent = pinEscrito.replace(/./g, "●"); }
+
+  function abrirTecnico() {
+    pinEscrito = pinValido = "";
+    pintarPin();
+    $("t-pin-error").textContent = "";
+    $("t-pin").style.display = "";
+    $("t-estado").style.display = "none";
+    $("tecnico").classList.add("visible");
+    vigilarTecnico();
+  }
+
+  function cerrarTecnico() {
+    $("tecnico").classList.remove("visible");
+    pinEscrito = pinValido = "";
+    clearTimeout(temporizadorTecnico);
+  }
+
+  function vigilarTecnico() {
+    clearTimeout(temporizadorTecnico);
+    if ($("tecnico").classList.contains("visible")) temporizadorTecnico = setTimeout(cerrarTecnico, TECNICO_MS);
+  }
+
+  $("tecnico").addEventListener("click", vigilarTecnico);
+  Array.prototype.forEach.call(document.querySelectorAll("[data-tecnico=cerrar]"), function (b) {
+    b.addEventListener("click", cerrarTecnico);
+  });
+
+  $("t-teclado").addEventListener("click", function (e) {
+    var boton = e.target.closest("button");
+    if (!boton) return;
+    var d = boton.getAttribute("data-d");
+    if (d === "borrar") pinEscrito = pinEscrito.slice(0, -1);
+    else if (d === "ok") return entrarTecnico(pinEscrito);
+    else if (pinEscrito.length < 12) pinEscrito += d;
+    pintarPin();
+  });
+
+  function entrarTecnico(pin) {
+    $("t-pin-error").textContent = "";
+    $("t-revisar").disabled = true;
+    $("t-revisar").textContent = "Revisando…";
+    api("POST", "/tecnico/", { pin: pin }).then(function (datos) {
+      pinValido = pin;
+      guardarSalud(datos);
+      aplicarSalud();
+      pintarTecnico(datos);
+    }, function (error) {
+      var texto = error.status === 429 ? "Demasiados intentos. Espera un minuto." : error.message;
+      if ($("t-estado").style.display === "none") {
+        pinEscrito = "";
+        pintarPin();
+        $("t-pin-error").textContent = texto;
+      } else {
+        $("t-titulo").textContent = texto;
+      }
+    }).then(function () {
+      $("t-revisar").disabled = false;
+      $("t-revisar").textContent = "Revisar de nuevo";
+    });
+  }
+
+  function pintarTecnico(datos) {
+    $("t-pin").style.display = "none";
+    $("t-estado").style.display = "";
+    var nombres = { verde: "puede cobrar", amarillo: "cobra con avisos", rojo: "fuera de servicio" };
+    $("t-titulo").textContent = "Cajero «" + datos.pantalla + "»: " + (nombres[datos.estado] || datos.estado);
+    var info = ["Impresión: " + impresion, "Horario de caja: " + datos.horario_caja];
+    if (datos.impresora) info.push("Impresora de red: " + datos.impresora);
+    if (datos.ultima_revision_automatica) info.push("Última revisión automática: " + datos.ultima_revision_automatica);
+    info.push("Revisado a las " + new Date().toLocaleTimeString("es-BO", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+    $("t-info").innerHTML = "";
+    info.forEach(function (t) {
+      var s = document.createElement("span");
+      s.textContent = t;
+      $("t-info").appendChild(s);
+    });
+    pintarRevisiones($("t-lista"), [CONEXION_OK].concat(datos.revisiones || []), true);
+  }
+
+  $("t-revisar").addEventListener("click", function () { entrarTecnico(pinValido); });
+  $("t-probar").addEventListener("click", function () {
+    var boton = this;
+    imprimir(ticketRecibo(RECIBO_DE_PRUEBA));
+    boton.textContent = impresion === "ninguna" ? "Esta pantalla no imprime" : "Enviado a la impresora ✓";
+    setTimeout(function () { boton.textContent = "Imprimir ticket de prueba"; }, 4000);
+  });
+
   // ---------------------------------------------------------------- arranque
   if (!token) {
     mostrar("p-sin-configurar");
   } else {
     pintarNumero();
-    mostrar("p-inicio");
+    arrancar();
+    setInterval(consultarEstado, ESTADO_MS);
     cargarAvisos();
     setInterval(cargarAvisos, AVISOS_MS);
     cargarGaleria();

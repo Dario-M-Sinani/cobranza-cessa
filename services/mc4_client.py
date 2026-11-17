@@ -91,6 +91,11 @@ class MC4ClientInterface(abc.ABC):
     @abc.abstractmethod
     def consultar_estado(self, alias: str) -> EstadoTransaccionQR: ...
 
+    def verificar_conexion(self) -> None:
+        """Para el estado del kiosco antes de cobrar: lanza MC4ClientError si no se puede generar
+        un QR ahora. Sin red de por medio (simuladores, dobles de prueba) no hay nada que revisar."""
+        return None
+
 
 class SipMC4Client(MC4ClientInterface):
     TOKEN_CACHE_KEY = "mc4:auth_token"
@@ -161,6 +166,14 @@ class SipMC4Client(MC4ClientInterface):
             nombre_pagador=str(objeto.get("nombreCliente") or "").strip(),
             documento_pagador=str(objeto.get("documentoCliente") or "").strip(),
         )
+
+    def verificar_conexion(self) -> None:
+        """El login de SIP (usuario, clave y apikey). El token se guarda 55 min, así que una caída
+        de SIP con el token todavía vigente recién se nota al generar el QR."""
+        try:
+            self._obtener_token()
+        except requests.RequestException as exc:
+            raise MC4RequestError(f"login SIP: {exc}") from exc
 
     def _obtener_token(self, forzar_refresco: bool = False) -> str:
         if forzar_refresco:

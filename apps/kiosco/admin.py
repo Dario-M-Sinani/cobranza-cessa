@@ -1,6 +1,15 @@
 from django.contrib import admin
 
-from .models import EnvioFactura, PagoKiosco
+from .models import EnvioFactura, PagoKiosco, PantallaKiosco
+
+
+@admin.register(PantallaKiosco)
+class PantallaKioscoAdmin(admin.ModelAdmin):
+    list_display = ("nombre", "ultimo_contacto", "revisada_en", "problemas_avisados")
+    readonly_fields = [f.name for f in PantallaKiosco._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
 
 
 class EnvioFacturaInline(admin.TabularInline):
