@@ -172,6 +172,35 @@ class TestConsulta:
         assert datos["deuda"] == [{"periodo": "Agosto 2026", "detalle": "CONSUMO", "importe": "35.00", "cantidad": 2}]
         assert datos["cantidades"] == [{"cantidad": 2, "monto": "35.00"}]
 
+    def test_conciliacion_mayor_que_el_mes_se_suma_al_siguiente_hasta_quedar_positiva(self, config):
+        config["body"]["deuda"] = [
+            _item(1, 2026, 7, "30.00"),
+            _item(2, 2026, 7, "100.00", "CREDITO", "CONCILIACION"),
+            _item(3, 2026, 8, "40.00"),  # 40 - 100 = -60: sigue
+            _item(4, 2026, 9, "35.00"),  # -25: sigue
+            _item(5, 2026, 10, "50.00"),  # +25: aquí cierra la fila
+            _item(6, 2026, 11, "20.00"),
+        ]
+        datos = _cliente().get("/api/kiosco/clientes/153896/", **INTERNA).json()
+        assert datos["deuda"] == [
+            {"periodo": "Julio 2026", "detalle": "CONSUMO", "importe": "30.00", "cantidad": 1},
+            {"periodo": "Agosto, Septiembre y Octubre 2026", "detalle": "CONSUMO", "importe": "25.00", "cantidad": 5},
+            {"periodo": "Noviembre 2026", "detalle": "CONSUMO", "importe": "20.00", "cantidad": 6},
+        ]
+        assert [c["cantidad"] for c in datos["cantidades"]] == [1, 5, 6]
+
+    def test_credito_que_no_alcanza_a_quedar_positivo_va_con_la_fila_anterior(self, config):
+        config["body"]["deuda"] = [
+            _item(1, 2025, 12, "80.00"),
+            _item(2, 2025, 12, "100.00", "CREDITO", "CONCILIACION"),
+            _item(3, 2026, 1, "10.00"),
+        ]
+        datos = _cliente().get("/api/kiosco/clientes/153896/", **INTERNA).json()
+        assert datos["deuda"] == [
+            {"periodo": "Diciembre 2025 y Enero 2026", "detalle": "CONSUMO", "importe": "-10.00", "cantidad": 3},
+        ]
+        assert datos["cantidades"] == []
+
     def test_no_se_genera_qr_cortando_una_conciliacion(self, sip):
         r = _cliente().post("/api/kiosco/qr/", {"nro_cliente": "153896", "cantidad": 3}, format="json", **INTERNA)
         assert r.status_code == 409 and sip.generados == []
