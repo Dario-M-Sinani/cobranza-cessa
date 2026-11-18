@@ -12,3 +12,6 @@ venv/
 
 # Token local del front de deuda (tools/deuda-test-front)
 .token
+
+# Videos y archivos subidos desde el admin (MEDIA_ROOT)
+/media/

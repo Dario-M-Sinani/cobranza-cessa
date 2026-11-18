@@ -1,10 +1,13 @@
 import base64
+import hashlib
 import hmac
+import json
 import logging
+import mimetypes
 from functools import lru_cache
 
 from django.conf import settings
-from django.http import HttpResponse, HttpResponseForbidden
+from django.http import FileResponse, HttpResponse, HttpResponseForbidden
 from django.shortcuts import render
 from rest_framework import status
 from rest_framework.response import Response
@@ -12,8 +15,8 @@ from rest_framework.views import APIView
 
 from apps.facturacion_externa.reporte import LOGO
 
-from . import avisos, galeria, salud, services
-from .models import PagoKiosco, PantallaKiosco
+from . import avisos, galeria, preguntas, salud, services
+from .models import PagoKiosco, PantallaKiosco, VideoKiosco
 from .permissions import ConsultasPorKiosco, EsKiosco, IntentosDePin, ip_cliente, ip_permitida
 
 logger = logging.getLogger(__name__)
@@ -79,6 +82,43 @@ class AvisosView(_KioscoView):
 
     def get(self, request):
         return Response({"avisos": avisos.avisos()})
+
+
+class ContenidoView(_KioscoView):
+    """GET /api/kiosco/contenido/ -- cómo se reparte esta pantalla (diseño elegido en el admin), los
+    videos activos y las preguntas frecuentes de la web. `version` cambia si cambia algo: la
+    pantalla solo vuelve a armarse en ese caso."""
+
+    def get(self, request):
+        pantalla = PantallaKiosco.objects.select_related("diseno").filter(nombre=request.kiosco).first()
+        diseno = pantalla.diseno.para_pantalla() if pantalla and pantalla.diseno else None
+        modulos = {c["modulo"] for f in (diseno or {}).get("franjas", []) for c in f["celdas"]}
+        videos = [
+            {"id": v.id, "titulo": v.titulo, "con_sonido": v.con_sonido, "version": v.subido_en.strftime("%Y%m%d%H%M%S")}
+            for v in VideoKiosco.objects.filter(activo=True)
+        ] if "video" in modulos else []
+        lista_preguntas = preguntas.preguntas() if "preguntas" in modulos else []
+        datos = {"diseno": diseno, "videos": videos, "preguntas": lista_preguntas}
+        datos["version"] = hashlib.sha1(json.dumps(datos, sort_keys=True).encode()).hexdigest()[:12]
+        return Response(datos)
+
+
+class VideoView(_KioscoView):
+    """GET /api/kiosco/videos/<id>/ -- el archivo de un video activo. La pantalla lo pide con su
+    token (no hay URL pública) y lo guarda en su caché."""
+
+    def get(self, request, id_video):
+        video = VideoKiosco.objects.filter(pk=id_video, activo=True).first()
+        if video is None or not video.archivo:
+            return Response({"error": "No encontrado."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            archivo = video.archivo.open("rb")
+        except OSError:
+            return Response({"error": "No encontrado."}, status=status.HTTP_404_NOT_FOUND)
+        tipo = mimetypes.guess_type(video.archivo.name)[0] or "video/mp4"
+        respuesta = FileResponse(archivo, content_type=tipo)
+        respuesta["Cache-Control"] = "private, max-age=86400"
+        return respuesta
 
 
 class GaleriaView(_KioscoView):

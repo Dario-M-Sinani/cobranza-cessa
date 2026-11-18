@@ -95,6 +95,87 @@ class PantallaKiosco(models.Model):
     problemas_avisados = models.CharField(max_length=500, blank=True, default="")
     problemas_nuevos = models.CharField(max_length=500, blank=True, default="")
     veces_nuevos = models.PositiveSmallIntegerField(default=0)
+    # Cómo se reparte la pantalla (cajero, videos, cortes, preguntas). Sin diseño: solo el cajero.
+    diseno = models.ForeignKey(
+        "DisenoKiosco", null=True, blank=True, on_delete=models.SET_NULL, related_name="pantallas",
+        help_text="Cómo se reparte la pantalla. Vacío: solo el cajero, a pantalla completa.",
+    )
 
     def __str__(self):
         return f"PantallaKiosco {self.nombre}"
+
+
+class Modulo(models.TextChoices):
+    CAJERO = "cajero", "Cajero (consulta y pago)"
+    VIDEO = "video", "Videos (spots)"
+    CORTES = "cortes", "Cortes de energía"
+    PREGUNTAS = "preguntas", "Preguntas frecuentes"
+
+
+class DisenoKiosco(models.Model):
+    """Cómo se reparte la pantalla del kiosco: franjas de arriba a abajo, cada una con uno o dos
+    cuadros (cajero, videos, cortes o preguntas frecuentes). Se elige en el admin para cada
+    pantalla y la pantalla lo toma sola (pregunta cada minuto, lo aplica al volver al inicio)."""
+
+    nombre = models.CharField(max_length=80, unique=True)
+    modificado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "diseño de pantalla"
+        verbose_name_plural = "diseños de pantalla"
+
+    def __str__(self):
+        return self.nombre
+
+    def para_pantalla(self) -> dict:
+        franjas = []
+        for f in self.franjas.all():
+            celdas = [{"modulo": f.modulo, "ancho": f.ancho}]
+            if f.modulo_2:
+                celdas.append({"modulo": f.modulo_2, "ancho": 100 - f.ancho})
+            franjas.append({"alto": f.alto, "celdas": celdas})
+        return {"nombre": self.nombre, "franjas": franjas}
+
+
+class FranjaDiseno(models.Model):
+    """Una franja horizontal del diseño. `alto` es relativo a las demás franjas (30 y 70 = 30 % y
+    70 %). Con un segundo cuadro, la franja se parte en dos columnas (`ancho` % para el primero)."""
+
+    diseno = models.ForeignKey(DisenoKiosco, on_delete=models.CASCADE, related_name="franjas")
+    orden = models.PositiveSmallIntegerField(default=0, help_text="De arriba (menor) a abajo (mayor).")
+    alto = models.PositiveSmallIntegerField(default=50, help_text="Alto relativo a las otras franjas (ej. 25, 60, 15).")
+    modulo = models.CharField("cuadro", max_length=20, choices=Modulo.choices)
+    modulo_2 = models.CharField("segundo cuadro", max_length=20, choices=Modulo.choices, blank=True, default="",
+                                help_text="Opcional: parte la franja en dos columnas.")
+    ancho = models.PositiveSmallIntegerField(default=100, help_text="% de ancho del primer cuadro si hay segundo.")
+
+    class Meta:
+        ordering = ["orden", "id"]
+        verbose_name = "franja"
+
+    def __str__(self):
+        return f"{self.get_modulo_display()}" + (f" | {self.get_modulo_2_display()}" if self.modulo_2 else "")
+
+
+def _ruta_video(instancia, nombre):
+    return f"kiosco/videos/{nombre}"
+
+
+class VideoKiosco(models.Model):
+    """Un spot para el cuadro de videos. Lo sirve el gateway (la pantalla no tiene internet) y la
+    pantalla lo guarda en su caché para no bajarlo de nuevo."""
+
+    titulo = models.CharField(max_length=120)
+    archivo = models.FileField(upload_to=_ruta_video, help_text="MP4 (H.264). Mejor de menos de 100 MB.")
+    orden = models.PositiveSmallIntegerField(default=0)
+    activo = models.BooleanField(default=True)
+    con_sonido = models.BooleanField(default=False, help_text="Si se desmarca, se reproduce en silencio.")
+    subido_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["orden", "id"]
+        verbose_name = "video del kiosco"
+        verbose_name_plural = "videos del kiosco"
+
+    def __str__(self):
+        return self.titulo

@@ -1074,3 +1074,94 @@ class TestVigilancia:
         tasks.vigilar_kioscos()
         cache.clear()
         assert _estado()["estado"] == "verde"
+
+
+# ---------------------------------------------------------------- diseño de la pantalla
+from django.core.files.uploadedfile import SimpleUploadedFile  # noqa: E402
+from django.forms import inlineformset_factory  # noqa: E402
+
+from . import preguntas  # noqa: E402
+from .admin import FranjasFormSet  # noqa: E402
+from .models import DisenoKiosco, FranjaDiseno, VideoKiosco  # noqa: E402
+
+
+def _diseno_vertical():
+    d = DisenoKiosco.objects.create(nombre="Vertical")
+    FranjaDiseno.objects.create(diseno=d, orden=1, alto=25, modulo="video")
+    FranjaDiseno.objects.create(diseno=d, orden=2, alto=60, modulo="cajero")
+    FranjaDiseno.objects.create(diseno=d, orden=3, alto=15, modulo="cortes", modulo_2="preguntas", ancho=40)
+    return d
+
+
+@pytest.mark.django_db
+class TestDisenoPantalla:
+    def test_sin_diseno_solo_cajero(self, monkeypatch):
+        monkeypatch.setattr(preguntas, "preguntas", lambda: pytest.fail("sin cuadro de preguntas no se leen"))
+        datos = _cliente().get("/api/kiosco/contenido/", **INTERNA).json()
+        assert datos["diseno"] is None and datos["videos"] == [] and datos["preguntas"] == []
+        assert datos["version"]
+
+    def test_con_diseno_trae_franjas_videos_y_preguntas(self, settings, tmp_path, monkeypatch):
+        settings.MEDIA_ROOT = str(tmp_path)
+        PantallaKiosco.objects.create(nombre="oficina-central", diseno=_diseno_vertical())
+        VideoKiosco.objects.create(titulo="Spot", archivo=SimpleUploadedFile("spot.mp4", b"mp4"), orden=1)
+        VideoKiosco.objects.create(titulo="Viejo", archivo=SimpleUploadedFile("viejo.mp4", b"mp4"), activo=False)
+        monkeypatch.setattr(preguntas, "preguntas", lambda: [{"pregunta": "¿Qué?", "respuesta": "Eso."}])
+        datos = _cliente().get("/api/kiosco/contenido/", **INTERNA).json()
+        assert datos["diseno"]["franjas"] == [
+            {"alto": 25, "celdas": [{"modulo": "video", "ancho": 100}]},
+            {"alto": 60, "celdas": [{"modulo": "cajero", "ancho": 100}]},
+            {"alto": 15, "celdas": [{"modulo": "cortes", "ancho": 40}, {"modulo": "preguntas", "ancho": 60}]},
+        ]
+        assert [v["titulo"] for v in datos["videos"]] == ["Spot"]
+        assert datos["preguntas"] == [{"pregunta": "¿Qué?", "respuesta": "Eso."}]
+        # Misma respuesta, misma versión: la pantalla no se vuelve a armar.
+        assert _cliente().get("/api/kiosco/contenido/", **INTERNA).json()["version"] == datos["version"]
+
+    def test_video_solo_con_token_y_activo(self, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        activo = VideoKiosco.objects.create(titulo="Spot", archivo=SimpleUploadedFile("spot.mp4", b"contenido-mp4"))
+        apagado = VideoKiosco.objects.create(titulo="No", archivo=SimpleUploadedFile("no.mp4", b"x"), activo=False)
+        assert _cliente().get(f"/api/kiosco/videos/{activo.id}/", HTTP_X_REAL_IP="10.10.20.5").status_code == 403
+        r = _cliente().get(f"/api/kiosco/videos/{activo.id}/", **INTERNA)
+        assert r.status_code == 200 and b"".join(r.streaming_content) == b"contenido-mp4"
+        assert r["Content-Type"] == "video/mp4"
+        assert _cliente().get(f"/api/kiosco/videos/{apagado.id}/", **INTERNA).status_code == 404
+
+    def _formset(self, filas):
+        Formset = inlineformset_factory(DisenoKiosco, FranjaDiseno, formset=FranjasFormSet,
+                                        fields=("orden", "alto", "modulo", "modulo_2", "ancho"), extra=0)
+        datos = {"franjas-TOTAL_FORMS": str(len(filas)), "franjas-INITIAL_FORMS": "0"}
+        for i, fila in enumerate(filas):
+            for clave, valor in {"orden": i, "alto": 30, "modulo_2": "", "ancho": 100, **fila}.items():
+                datos[f"franjas-{i}-{clave}"] = valor
+        return Formset(datos, instance=DisenoKiosco(nombre="x"), prefix="franjas")
+
+    def test_el_diseno_tiene_un_cajero_y_sin_repetidos(self):
+        assert self._formset([{"modulo": "video"}, {"modulo": "cajero"}]).is_valid()
+        assert not self._formset([{"modulo": "video"}]).is_valid()
+        assert not self._formset([{"modulo": "cajero"}, {"modulo": "cajero"}]).is_valid()
+        assert not self._formset([{"modulo": "cajero"}, {"modulo": "video", "modulo_2": "video", "ancho": 50}]).is_valid()
+        assert not self._formset([{"modulo": "cajero", "modulo_2": "cortes", "ancho": 95}]).is_valid()
+
+
+class TestPreguntas:
+    def test_texto_plano_del_html_de_la_web(self):
+        html_web = "<p>Puede deberse a:</p><ul><li>Trabajos&nbsp;programados</li><li>Fallas</li></ul><p>Llame al <b>176</b>.</p>"
+        assert preguntas.texto_plano(html_web) == "Puede deberse a:\n\n• Trabajos programados\n\n• Fallas\n\nLlame al 176."
+
+    def test_pregunta_en_mayusculas_pasa_a_oracion(self):
+        assert preguntas.oracion("¿CÓMO PAGO MI FACTURA DE CESSA?") == "¿Cómo pago mi factura de CESSA?"
+        assert preguntas.oracion("¿Cómo pago?") == "¿Cómo pago?"
+
+    def test_si_la_web_no_responde_quedan_las_ultimas(self, settings, monkeypatch):
+        settings.CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+        cache.clear()
+        monkeypatch.setattr(preguntas, "_leer", lambda: [{"pregunta": "A", "respuesta": "B"}])
+        assert preguntas.preguntas() == [{"pregunta": "A", "respuesta": "B"}]
+        cache.delete(preguntas.CLAVE_CACHE)
+
+        def caida():
+            raise ValueError("sin red")
+        monkeypatch.setattr(preguntas, "_leer", caida)
+        assert preguntas.preguntas() == [{"pregunta": "A", "respuesta": "B"}]
