@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Editor del kiosco · CESSA</title>
+<style>
+  :root {
+    --azul: #004c98; --azul-osc: #00335f; --azul-claro: #dceefc; --amarillo: #ffe71e; --ambar: #f5d800;
+    --gris-50: #f9fafb; --gris-200: #e5e7eb; --gris-300: #d1d5db; --gris-500: #6b7280; --gris-700: #374151; --gris-900: #111827;
+    --rojo: #dc2626; --verde: #047857;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { font-family: "Segoe UI", system-ui, Roboto, Arial, sans-serif; color: var(--gris-900); background: #eef2f7; display: flex; flex-direction: column; }
+  button, input, select { font: inherit; }
+  button { cursor: pointer; border-radius: 10px; border: 1px solid var(--gris-300); background: #fff; padding: 8px 14px; }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primario { background: var(--ambar); border-color: var(--ambar); color: var(--azul-osc); font-weight: 800; }
+  button.peligro { color: var(--rojo); }
+  input[type=text], select { padding: 8px 12px; border: 1px solid var(--gris-300); border-radius: 10px; background: #fff; }
+
+  header { display: flex; align-items: center; gap: 16px; padding: 10px 20px; background: var(--azul-osc); color: #fff; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 19px; }
+  .pestanas { display: flex; gap: 4px; margin-left: 12px; }
+  .pestanas button { background: transparent; color: var(--azul-claro); border: 0; border-radius: 8px; padding: 8px 14px; font-weight: 700; }
+  .pestanas button.activa { background: var(--amarillo); color: var(--azul-osc); }
+  header .quien { margin-left: auto; font-size: 14px; color: var(--azul-claro); display: flex; gap: 10px; align-items: center; }
+  header .quien button { background: transparent; color: #fff; border-color: rgba(255,255,255,.4); padding: 5px 12px; }
+
+  .vista { display: none; flex: 1; min-height: 0; }
+  .vista.activa { display: flex; flex-direction: column; }
+
+  /* Diseño */
+  .barra { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 20px; background: #fff; border-bottom: 1px solid var(--gris-200); }
+  .barra label { font-weight: 700; color: var(--gris-700); }
+  .barra .espacio { flex: 1; }
+  .estado-guardado { font-size: 14px; color: var(--gris-500); }
+  .estado-guardado.sucio { color: #b45309; font-weight: 700; }
+  .estado-guardado.ok { color: var(--verde); font-weight: 700; }
+  .estado-guardado.error { color: var(--rojo); font-weight: 700; }
+  .area { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(320px, 1fr) minmax(280px, 1fr) 300px; gap: 20px; padding: 16px 20px; }
+  .panel { background: #fff; border-radius: 16px; border: 1px solid var(--gris-200); padding: 14px; display: flex; flex-direction: column; min-height: 0; }
+  .panel h2 { margin: 0 0 4px; font-size: 16px; color: var(--azul-osc); }
+  .panel .ayuda { margin: 0 0 10px; font-size: 13px; color: var(--gris-500); line-height: 1.4; }
+  .escenario { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+
+  /* El tótem dibujado */
+  .totem { position: relative; height: 100%; max-height: 100%; aspect-ratio: 9 / 16; max-width: 100%; background: #111; border: 10px solid #111;
+    border-radius: 18px; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,.25); user-select: none; touch-action: none; }
+  .fila { display: flex; min-height: 0; flex-basis: 0; position: relative; }
+  .cuadro { position: relative; min-width: 0; flex-basis: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 4px; text-align: center; cursor: pointer; border-radius: 6px; margin: 2px; overflow: hidden; transition: filter .15s, outline-color .15s;
+    outline: 3px solid transparent; outline-offset: -3px; }
+  .cuadro:hover { filter: brightness(1.08); }
+  .cuadro.elegido { outline-color: #fb923c; }
+  .cuadro .icono { font-size: clamp(18px, 3.2vh, 34px); line-height: 1; }
+  .cuadro .nombre { font-weight: 800; font-size: clamp(12px, 1.6vh, 17px); }
+  .cuadro .medida { font-size: clamp(11px, 1.3vh, 14px); opacity: .8; }
+  .m-cajero { background: var(--azul); color: #fff; }
+  .m-video { background: #1f2937; color: #fff; }
+  .m-cortes { background: var(--amarillo); color: var(--azul-osc); }
+  .m-preguntas { background: var(--azul-claro); color: var(--azul-osc); }
+  .divisor-h { flex: 0 0 14px; cursor: ns-resize; display: flex; align-items: center; justify-content: center; position: relative; z-index: 2; margin: -5px 0; }
+  .divisor-v { flex: 0 0 14px; cursor: ew-resize; display: flex; align-items: center; justify-content: center; position: relative; z-index: 2; margin: 0 -5px; }
+  .divisor-h::before { content: ""; width: 100%; height: 4px; background: var(--amarillo); border-radius: 4px; box-shadow: 0 0 0 1px rgba(0,0,0,.4); }
+  .divisor-v::before { content: ""; height: 100%; width: 4px; background: var(--amarillo); border-radius: 4px; box-shadow: 0 0 0 1px rgba(0,0,0,.4); }
+  .divisor-h::after, .divisor-v::after { content: "⋮⋮"; position: absolute; background: var(--amarillo); color: var(--azul-osc); font-weight: 900;
+    border-radius: 8px; padding: 0 6px; font-size: 12px; line-height: 18px; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+  .divisor-h::after { content: "⇕"; }
+  .divisor-v::after { content: "⇔"; }
+  .divisor-h:hover::before, .divisor-v:hover::before, .arrastrando::before { background: #fff; }
+  .acciones-totem { display: flex; gap: 8px; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
+
+  /* Menú de un cuadro */
+  #menu { position: fixed; inset: 0; background: rgba(0,20,40,.45); display: none; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+  #menu.visible { display: flex; }
+  #menu .caja { background: #fff; border-radius: 18px; padding: 20px; width: min(420px, 100%); box-shadow: 0 20px 50px rgba(0,0,0,.35); }
+  #menu h3 { margin: 0 0 12px; color: var(--azul-osc); }
+  #menu .opciones { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+  #menu .opciones button { padding: 12px 8px; font-weight: 700; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  #menu .opciones button.actual { outline: 3px solid #fb923c; }
+  #menu .opciones small { font-weight: 400; color: var(--gris-500); }
+  #menu .mas { display: flex; flex-direction: column; gap: 8px; }
+  #menu .mas button { text-align: left; }
+
+  /* Vista previa en vivo */
+  .previa-marco { position: relative; width: 100%; height: 100%; overflow: hidden; }
+  .previa-marco .marco { position: absolute; left: 50%; top: 50%; border: 12px solid #000; border-radius: 20px; background: #000;
+    box-shadow: 0 10px 30px rgba(0,0,0,.3); transform-origin: center center; }
+  .previa-marco iframe { display: block; border: 0; width: 1080px; height: 1920px; background: #00335f; }
+
+  .totems { display: flex; flex-direction: column; gap: 8px; overflow: auto; }
+  .totem-fila { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--gris-200); border-radius: 12px; cursor: pointer; }
+  .totem-fila input { width: 20px; height: 20px; }
+  .totem-fila .nom { font-weight: 700; }
+  .totem-fila small { display: block; color: var(--gris-500); }
+  .totem-fila.usa { border-color: var(--azul); background: #f0f7ff; }
+
+  /* Videos */
+  .videos { flex: 1; overflow: auto; padding: 16px 20px; display: grid; grid-template-columns: 360px 1fr; gap: 20px; align-items: start; }
+  .subir label { display: block; font-weight: 700; margin: 10px 0 6px; }
+  .subir input[type=text] { width: 100%; }
+  .subir .zona { border: 2px dashed var(--gris-300); border-radius: 14px; padding: 18px; text-align: center; color: var(--gris-500); }
+  .subir .zona.encima { border-color: var(--azul); background: #f0f7ff; }
+  .progreso { height: 10px; background: var(--gris-200); border-radius: 99px; overflow: hidden; margin-top: 12px; display: none; }
+  .progreso span { display: block; height: 100%; width: 0; background: var(--azul); transition: width .2s; }
+  .lista-videos { display: flex; flex-direction: column; gap: 12px; }
+  .video-fila { display: grid; grid-template-columns: 200px 1fr auto; gap: 14px; align-items: center; background: #fff; border: 1px solid var(--gris-200);
+    border-radius: 14px; padding: 12px; }
+  .video-fila.apagado { opacity: .6; }
+  .video-fila video { width: 200px; aspect-ratio: 16/9; background: #000; border-radius: 8px; }
+  .video-fila .datos { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .video-fila .datos input[type=text] { font-weight: 700; }
+  .video-fila .interruptores { display: flex; gap: 16px; flex-wrap: wrap; font-size: 14px; }
+  .video-fila .interruptores label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+  .video-fila .peso { font-size: 13px; color: var(--gris-500); }
+  .video-fila .botones { display: flex; flex-direction: column; gap: 6px; }
+  .vacio { color: var(--gris-500); padding: 30px; text-align: center; background: #fff; border-radius: 14px; border: 1px dashed var(--gris-300); }
+
+  #aviso { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--gris-900); color: #fff; padding: 12px 20px;
+    border-radius: 12px; display: none; z-index: 60; max-width: 90%; box-shadow: 0 10px 25px rgba(0,0,0,.3); }
+  #aviso.visible { display: block; }
+  #aviso.error { background: var(--rojo); }
+
+  @media (max-width: 1100px) {
+    .area { grid-template-columns: 1fr 1fr; grid-auto-rows: minmax(420px, auto); overflow: auto; }
+    .videos { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚡ Editor del kiosco</h1>
+  <div class="pestanas">
+    <button type="button" class="activa" data-vista="v-diseno">Pantalla</button>
+    {% if puede_videos %}<button type="button" data-vista="v-videos">Videos</button>{% endif %}
+  </div>
+  <div class="quien">
+    <span>{{ usuario }}</span>
+    <form method="post" action="{% url 'kiosco-editor-salir' %}">{% csrf_token %}<button type="submit">Salir</button></form>
+  </div>
+</header>
+
+<!-- ============================ Diseño ============================ -->
+<section class="vista activa" id="v-diseno">
+  <div class="barra">
+    <label for="sel-diseno">Diseño</label>
+    <select id="sel-diseno"></select>
+    <input type="text" id="nombre" maxlength="80" placeholder="Nombre del diseño" style="min-width:240px">
+    <button type="button" id="b-nuevo">＋ Nuevo</button>
+    <button type="button" id="b-copiar">Copiar</button>
+    <button type="button" id="b-borrar" class="peligro">Borrar</button>
+    <span class="espacio"></span>
+    <span class="estado-guardado" id="estado-guardado"></span>
+    <button type="button" id="b-deshacer">Deshacer cambios</button>
+    <button type="button" class="primario" id="b-guardar">Guardar</button>
+  </div>
+  <div class="area">
+    <div class="panel">
+      <h2>1 · Arma la pantalla</h2>
+      <p class="ayuda"><b>Arrastra las líneas amarillas</b> para agrandar o achicar. <b>Toca un cuadro</b> para cambiar lo que muestra,
+        partirlo en dos o quitarlo.</p>
+      <div class="escenario"><div class="totem" id="totem"></div></div>
+      <div class="acciones-totem"><button type="button" id="b-franja">＋ Agregar franja abajo</button></div>
+    </div>
+    <div class="panel">
+      <h2>2 · Así se ve</h2>
+      <p class="ayuda">La pantalla de verdad con lo guardado (se actualiza sola unos segundos después de <b>Guardar</b>). Aquí no se cobra.</p>
+      <div class="previa-marco" id="previa-marco"><div class="marco" id="previa"><iframe id="previa-iframe" title="Vista previa del tótem"></iframe></div></div>
+      <div class="acciones-totem"><button type="button" id="b-grande">Abrir en grande ↗</button></div>
+    </div>
+    <div class="panel">
+      <h2>3 · Qué tótems lo usan</h2>
+      <p class="ayuda">Marca los tótems que muestran este diseño. Lo toman en un minuto, cuando vuelven al inicio (nunca en medio de un pago).</p>
+      <div class="totems" id="totems"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ Videos ============================ -->
+{% if puede_videos %}
+<section class="vista" id="v-videos">
+  <div class="videos">
+    <div class="panel subir">
+      <h2>Subir un spot</h2>
+      <p class="ayuda">MP4 o WebM, hasta {{ max_video_mb }} MB. Mejor horizontal (16:9). Se guarda en el servidor del kiosco y los tótems lo bajan solos.</p>
+      <label for="v-titulo">Nombre</label>
+      <input type="text" id="v-titulo" maxlength="120" placeholder="Ej.: Campaña pago QR noviembre">
+      <label for="v-archivo">Archivo</label>
+      <div class="zona" id="zona">Arrastra el video aquí o<br><input type="file" id="v-archivo" accept="video/mp4,video/webm"></div>
+      <div class="progreso" id="progreso"><span></span></div>
+      <button type="button" class="primario" id="b-subir" style="width:100%;margin-top:14px">Subir video</button>
+    </div>
+    <div>
+      <h2 style="margin:0 0 10px;color:var(--azul-osc);font-size:16px">Videos (pasan en este orden, uno tras otro)</h2>
+      <div class="lista-videos" id="lista-videos"></div>
+    </div>
+  </div>
+</section>
+{% endif %}
+
+<div id="menu" role="dialog" aria-modal="true"><div class="caja" id="menu-caja"></div></div>
+<div id="aviso" role="status"></div>
+
+<script>
+(function () {
+  "use strict";
+  var API = "/api/kiosco/editor";
+  var ICONOS = { cajero: "🧾", video: "🎬", cortes: "⚡", preguntas: "❓" };
+  var MIN_ALTO = 6;   // % mínimo de una franja al arrastrar
+  var $ = function (id) { return document.getElementById(id); };
+
+  var datos = { disenos: [], pantallas: [], modulos: [] };
+  var actual = null;        // diseño elegido (copia editable)
+  var guardado = null;      // cómo estaba guardado (para "Deshacer" y saber si hay cambios)
+
+  function cookie(nombre) {
+    var m = document.cookie.match(new RegExp("(?:^|; )" + nombre + "=([^;]*)"));
+    return m ? decodeURIComponent(m[1]) : "";
+  }
+
+  function pedir(metodo, ruta, cuerpo) {
+    return fetch(API + ruta, {
+      method: metodo, credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "X-CSRFToken": cookie("csrftoken") },
+      body: cuerpo ? JSON.stringify(cuerpo) : undefined
+    }).then(function (r) {
+      if (r.status === 204) return {};
+      return r.json().catch(function () { return {}; }).then(function (d) {
+        if (r.status === 403 && !d.error) { location.href = "/kiosco/editor/"; }
+        if (!r.ok) throw new Error(d.error || d.detail || "No se pudo guardar.");
+        return d;
+      });
+    });
+  }
+
+  var temporizadorAviso;
+  function avisar(texto, error) {
+    var el = $("aviso");
+    el.textContent = texto;
+    el.className = "visible" + (error ? " error" : "");
+    clearTimeout(temporizadorAviso);
+    temporizadorAviso = setTimeout(function () { el.className = ""; }, error ? 7000 : 3500);
+  }
+
+  function nombreModulo(valor) {
+    var m = datos.modulos.filter(function (x) { return x.valor === valor; })[0];
+    return m ? m.nombre : valor;
+  }
+
+  function copia(d) { return JSON.parse(JSON.stringify(d)); }
+
+  // ------------------------------------------------------------ pestañas
+  document.querySelectorAll("[data-vista]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      document.querySelectorAll("[data-vista]").forEach(function (x) { x.classList.toggle("activa", x === b); });
+      document.querySelectorAll(".vista").forEach(function (v) { v.classList.toggle("activa", v.id === b.dataset.vista); });
+      if (b.dataset.vista === "v-videos") cargarVideos();
+      else ajustarPrevia();
+    });
+  });
+
+  // ------------------------------------------------------------ datos
+  function cargar(idElegido) {
+    return pedir("GET", "/").then(function (d) {
+      datos = d;
+      var sel = $("sel-diseno");
+      sel.innerHTML = "";
+      d.disenos.forEach(function (x) {
+        var o = document.createElement("option");
+        o.value = x.id;
+        o.textContent = x.nombre + (x.pantallas.length ? "  (" + x.pantallas.length + " tótem" + (x.pantallas.length > 1 ? "s" : "") + ")" : "");
+        sel.appendChild(o);
+      });
+      if (!d.disenos.length) {
+        actual = guardado = null;
+        pintarTodo();
+        return;
+      }
+      var elegido = d.disenos.filter(function (x) { return String(x.id) === String(idElegido); })[0] || d.disenos[0];
+      sel.value = elegido.id;
+      elegir(elegido);
+    }, function (e) { avisar(e.message, true); });
+  }
+
+  function elegir(diseno) {
+    actual = copia(diseno);
+    guardado = copia(diseno);
+    $("nombre").value = actual.nombre;
+    $("previa-iframe").src = "/kiosco/?previa=" + actual.id + "&impresion=ninguna";
+    pintarTodo();
+  }
+
+  function haySinGuardar() {
+    if (!actual) return false;
+    return JSON.stringify({ n: actual.nombre, f: actual.franjas }) !== JSON.stringify({ n: guardado.nombre, f: guardado.franjas });
+  }
+
+  function pintarEstado(texto, clase) {
+    var el = $("estado-guardado");
+    if (texto) { el.textContent = texto; el.className = "estado-guardado " + (clase || ""); return; }
+    var sucio = haySinGuardar();
+    el.textContent = sucio ? "● Cambios sin guardar" : (actual ? "Todo guardado" : "");
+    el.className = "estado-guardado" + (sucio ? " sucio" : "");
+    $("b-guardar").disabled = !sucio;
+    $("b-deshacer").disabled = !sucio;
+  }
+
+  function pintarTodo() {
+    var hay = !!actual;
+    ["nombre", "b-copiar", "b-borrar", "b-franja", "b-grande"].forEach(function (id) { $(id).disabled = !hay; });
+    pintarTotem();
+    pintarTotems();
+    pintarEstado();
+  }
+
+  // ------------------------------------------------------------ el tótem dibujado
+  function usados(excepto) {
+    var lista = [];
+    actual.franjas.forEach(function (f, i) {
+      if (!(excepto && excepto.fila === i && excepto.celda === 0)) lista.push(f.modulo);
+      if (f.modulo_2 && !(excepto && excepto.fila === i && excepto.celda === 1)) lista.push(f.modulo_2);
+    });
+    return lista;
+  }
+
+  function pintarTotem() {
+    var totem = $("totem");
+    totem.innerHTML = "";
+    if (!actual) {
+      totem.innerHTML = '<div style="color:#fff;margin:auto;padding:20px;text-align:center">Crea un diseño con «＋ Nuevo».</div>';
+      return;
+    }
+    var total = actual.franjas.reduce(function (s, f) { return s + f.alto; }, 0) || 1;
+    actual.franjas.forEach(function (f, i) {
+      if (i > 0) totem.appendChild(divisorH(i - 1));
+      var fila = document.createElement("div");
+      fila.className = "fila";
+      fila.style.flexGrow = f.alto;
+      var pct = Math.round(f.alto * 100 / total);
+      fila.appendChild(cuadro(i, 0, f.modulo, pct, f.modulo_2 ? f.ancho : null));
+      if (f.modulo_2) {
+        fila.appendChild(divisorV(i, fila));
+        fila.appendChild(cuadro(i, 1, f.modulo_2, pct, 100 - f.ancho));
+      }
+      totem.appendChild(fila);
+    });
+  }
+
+  function cuadro(fila, celda, modulo, pctAlto, pctAncho) {
+    var el = document.createElement("div");
+    el.className = "cuadro m-" + modulo;
+    el.style.flexGrow = pctAncho == null ? 100 : (celda === 0 ? actual.franjas[fila].ancho : 100 - actual.franjas[fila].ancho);
+    el.innerHTML = '<span class="icono"></span><span class="nombre"></span><span class="medida"></span>';
+    el.querySelector(".icono").textContent = ICONOS[modulo] || "";
+    el.querySelector(".nombre").textContent = nombreModulo(modulo);
+    el.querySelector(".medida").textContent = "alto " + pctAlto + " %" + (pctAncho != null ? " · ancho " + pctAncho + " %" : "");
+    el.addEventListener("click", function () { abrirMenu(fila, celda); });
+    return el;
+  }
+
+  function divisorH(arriba) {
+    var d = document.createElement("div");
+    d.className = "divisor-h";
+    d.title = "Arrastra para cambiar el alto";
+    d.addEventListener("pointerdown", function (ev) {
+      ev.preventDefault();
+      d.setPointerCapture(ev.pointerId);
+      d.classList.add("arrastrando");
+      var totem = $("totem");
+      var total = actual.franjas.reduce(function (s, f) { return s + f.alto; }, 0);
+      var altoPx = totem.clientHeight;
+      var y0 = ev.clientY, a0 = actual.franjas[arriba].alto, b0 = actual.franjas[arriba + 1].alto;
+      var minimo = total * MIN_ALTO / 100;
+      function mover(e) {
+        var delta = (e.clientY - y0) * total / altoPx;
+        delta = Math.max(minimo - a0, Math.min(b0 - minimo, delta));
+        actual.franjas[arriba].alto = a0 + delta;
+        actual.franjas[arriba + 1].alto = b0 - delta;
+        actualizarMedidas();
+      }
+      function soltar() {
+        d.removeEventListener("pointermove", mover);
+        d.removeEventListener("pointerup", soltar);
+        d.removeEventListener("pointercancel", soltar);
+        d.classList.remove("arrastrando");
+        normalizar();
+        pintarTotem();
+        pintarEstado();
+      }
+      d.addEventListener("pointermove", mover);
+      d.addEventListener("pointerup", soltar);
+      d.addEventListener("pointercancel", soltar);
+    });
+    return d;
+  }
+
+  function divisorV(i, filaEl) {
+    var d = document.createElement("div");
+    d.className = "divisor-v";
+    d.title = "Arrastra para cambiar el ancho";
+    d.addEventListener("pointerdown", function (ev) {
+      ev.preventDefault();
+      d.setPointerCapture(ev.pointerId);
+      d.classList.add("arrastrando");
+      function mover(e) {
+        var r = filaEl.getBoundingClientRect();
+        var ancho = Math.round((e.clientX - r.left) * 100 / r.width);
+        actual.franjas[i].ancho = Math.max(15, Math.min(85, ancho));
+        actualizarMedidas();
+      }
+      function soltar() {
+        d.removeEventListener("pointermove", mover);
+        d.removeEventListener("pointerup", soltar);
+        d.removeEventListener("pointercancel", soltar);
+        d.classList.remove("arrastrando");
+        pintarTotem();
+        pintarEstado();
+      }
+      d.addEventListener("pointermove", mover);
+      d.addEventListener("pointerup", soltar);
+      d.addEventListener("pointercancel", soltar);
+    });
+    return d;
+  }
+
+  // Mientras se arrastra: solo tamaños y textos, sin rearmar (para no perder el arrastre).
+  function actualizarMedidas() {
+    var total = actual.franjas.reduce(function (s, f) { return s + f.alto; }, 0) || 1;
+    var filas = $("totem").querySelectorAll(".fila");
+    actual.franjas.forEach(function (f, i) {
+      var fila = filas[i];
+      if (!fila) return;
+      fila.style.flexGrow = f.alto;
+      var pct = Math.round(f.alto * 100 / total);
+      var cuadros = fila.querySelectorAll(".cuadro");
+      cuadros.forEach(function (c, j) {
+        var ancho = f.modulo_2 ? (j === 0 ? f.ancho : 100 - f.ancho) : null;
+        c.style.flexGrow = ancho == null ? 100 : ancho;
+        c.querySelector(".medida").textContent = "alto " + pct + " %" + (ancho != null ? " · ancho " + ancho + " %" : "");
+      });
+    });
+    pintarEstado("● Cambios sin guardar", "sucio");
+  }
+
+  // Altos en % que suman 100 (con mínimos).
+  function normalizar() {
+    var total = actual.franjas.reduce(function (s, f) { return s + f.alto; }, 0) || 1;
+    actual.franjas.forEach(function (f) { f.alto = Math.max(5, Math.round(f.alto * 100 / total)); });
+    var suma = actual.franjas.reduce(function (s, f) { return s + f.alto; }, 0);
+    if (suma !== 100 && actual.franjas.length) {
+      var mayor = actual.franjas.reduce(function (m, f, i, a) { return f.alto > a[m].alto ? i : m; }, 0);
+      actual.franjas[mayor].alto += 100 - suma;
+    }
+  }
+
+  // ------------------------------------------------------------ menú de un cuadro
+  function cerrarMenu() {
+    $("menu").classList.remove("visible");
+    document.querySelectorAll(".cuadro.elegido").forEach(function (c) { c.classList.remove("elegido"); });
+  }
+  $("menu").addEventListener("click", function (e) { if (e.target === $("menu")) cerrarMenu(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") cerrarMenu(); });
+
+  function moduloEn(fila, celda) { return celda === 0 ? actual.franjas[fila].modulo : actual.franjas[fila].modulo_2; }
+  function ponerEn(fila, celda, modulo) {
+    if (celda === 0) actual.franjas[fila].modulo = modulo; else actual.franjas[fila].modulo_2 = modulo;
+  }
+  function dondeEsta(modulo) {
+    for (var i = 0; i < actual.franjas.length; i++) {
+      if (actual.franjas[i].modulo === modulo) return { fila: i, celda: 0 };
+      if (actual.franjas[i].modulo_2 === modulo) return { fila: i, celda: 1 };
+    }
+    return null;
+  }
+
+  function cambio() { normalizar(); pintarTotem(); pintarEstado(); cerrarMenu(); }
+
+  function abrirMenu(fila, celda) {
+    var f = actual.franjas[fila], modulo = moduloEn(fila, celda);
+    var caja = $("menu-caja");
+    caja.innerHTML = "";
+    var h = document.createElement("h3");
+    h.textContent = "Este cuadro muestra…";
+    caja.appendChild(h);
+
+    var opciones = document.createElement("div");
+    opciones.className = "opciones";
+    datos.modulos.forEach(function (m) {
+      var b = document.createElement("button");
+      b.type = "button";
+      var otro = m.valor !== modulo ? dondeEsta(m.valor) : null;
+      b.innerHTML = '<span style="font-size:24px"></span><span></span><small></small>';
+      b.children[0].textContent = ICONOS[m.valor];
+      b.children[1].textContent = m.nombre;
+      b.children[2].textContent = m.valor === modulo ? "ahora" : (otro ? "intercambiar" : "");
+      if (m.valor === modulo) b.className = "actual";
+      b.addEventListener("click", function () {
+        if (m.valor === modulo) { cerrarMenu(); return; }
+        if (otro) ponerEn(otro.fila, otro.celda, modulo);  // se intercambian de lugar
+        ponerEn(fila, celda, m.valor);
+        cambio();
+      });
+      opciones.appendChild(b);
+    });
+    caja.appendChild(opciones);
+
+    var mas = document.createElement("div");
+    mas.className = "mas";
+    function boton(texto, habilitado, accion, clase) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.textContent = texto;
+      b.disabled = !habilitado;
+      if (clase) b.className = clase;
+      b.addEventListener("click", accion);
+      mas.appendChild(b);
+    }
+    var libres = datos.modulos.map(function (m) { return m.valor; }).filter(function (v) { return usados().indexOf(v) === -1; });
+    if (!f.modulo_2) {
+      boton("◧ Partir en dos (otro cuadro al lado)", libres.length > 0, function () {
+        f.modulo_2 = libres[0]; f.ancho = 50; cambio();
+      });
+    }
+    boton("▲ Subir esta franja", fila > 0, function () {
+      var t = actual.franjas[fila - 1]; actual.franjas[fila - 1] = f; actual.franjas[fila] = t; cambio();
+    });
+    boton("▼ Bajar esta franja", fila < actual.franjas.length - 1, function () {
+      var t = actual.franjas[fila + 1]; actual.franjas[fila + 1] = f; actual.franjas[fila] = t; cambio();
+    });
+    var esCajero = modulo === "cajero";
+    boton(esCajero ? "El cajero no se puede quitar" : "✕ Quitar este cuadro", !esCajero, function () {
+      if (f.modulo_2) {
+        if (celda === 0) { f.modulo = f.modulo_2; }
+        f.modulo_2 = ""; f.ancho = 100;
+      } else {
+        actual.franjas.splice(fila, 1);
+      }
+      cambio();
+    }, "peligro");
+    boton("Cerrar", true, cerrarMenu);
+    caja.appendChild(mas);
+
+    document.querySelectorAll(".cuadro").forEach(function (c) { c.classList.remove("elegido"); });
+    var filas = $("totem").querySelectorAll(".fila");
+    var cuadros = filas[fila] ? filas[fila].querySelectorAll(".cuadro") : [];
+    if (cuadros[celda]) cuadros[celda].classList.add("elegido");
+    $("menu").classList.add("visible");
+  }
+
+  $("b-franja").addEventListener("click", function () {
+    var libres = datos.modulos.map(function (m) { return m.valor; }).filter(function (v) { return usados().indexOf(v) === -1; });
+    if (!libres.length) { avisar("Ya están todos los cuadros. Para agregar otro, primero quita uno.", true); return; }
+    actual.franjas.forEach(function (f) { f.alto = f.alto * 0.8; });
+    actual.franjas.push({ modulo: libres[0], alto: 20, modulo_2: "", ancho: 100 });
+    cambio();
+  });
+
+  // ------------------------------------------------------------ barra de arriba
+  $("sel-diseno").addEventListener("change", function () {
+    if (haySinGuardar() && !confirm("Hay cambios sin guardar en este diseño. ¿Cambiar igual y perderlos?")) {
+      this.value = actual.id; return;
+    }
+    var id = this.value;
+    elegir(datos.disenos.filter(function (x) { return String(x.id) === id; })[0]);
+  });
+  $("nombre").addEventListener("input", function () { if (actual) { actual.nombre = this.value; pintarEstado(); } });
+
+  $("b-guardar").addEventListener("click", function () {
+    if (!actual) return;
+    normalizar();
+    $("b-guardar").disabled = true;
+    pintarEstado("Guardando…");
+    pedir("PUT", "/disenos/" + actual.id + "/", { nombre: actual.nombre, franjas: actual.franjas }).then(function (d) {
+      var i = datos.disenos.findIndex(function (x) { return x.id === d.id; });
+      datos.disenos[i] = d;
+      var opcion = $("sel-diseno").querySelector('option[value="' + d.id + '"]');
+      if (opcion) opcion.textContent = d.nombre + (d.pantallas.length ? "  (" + d.pantallas.length + " tótem" + (d.pantallas.length > 1 ? "s" : "") + ")" : "");
+      actual = copia(d); guardado = copia(d);
+      pintarTodo();
+      pintarEstado("✓ Guardado", "ok");
+      avisar(d.pantallas.length ? "Guardado. Los tótems lo toman en un minuto." : "Guardado. Ningún tótem lo usa todavía (paso 3).");
+    }, function (e) { pintarEstado(); avisar(e.message, true); });
+  });
+
+  $("b-deshacer").addEventListener("click", function () { if (guardado) { actual = copia(guardado); $("nombre").value = actual.nombre; pintarTodo(); } });
+
+  function crear(copiarDe) {
+    var base = copiarDe ? "Copia de " + actual.nombre : "Diseño nuevo";
+    var nombre = prompt("Nombre del diseño", base);
+    if (!nombre) return;
+    pedir("POST", "/disenos/", { nombre: nombre, copiar_de: copiarDe || null }).then(function (d) {
+      avisar("Diseño creado. Ármalo y toca Guardar.");
+      cargar(d.id);
+    }, function (e) { avisar(e.message, true); });
+  }
+  $("b-nuevo").addEventListener("click", function () { crear(null); });
+  $("b-copiar").addEventListener("click", function () { if (actual) crear(actual.id); });
+  $("b-borrar").addEventListener("click", function () {
+    if (!actual) return;
+    if (actual.pantallas.length) { avisar("Lo usan tótems: primero desmárcalos en el paso 3.", true); return; }
+    if (!confirm("¿Borrar el diseño «" + actual.nombre + "»?")) return;
+    pedir("DELETE", "/disenos/" + actual.id + "/").then(function () { avisar("Diseño borrado."); cargar(); }, function (e) { avisar(e.message, true); });
+  });
+
+  // ------------------------------------------------------------ tótems
+  function pintarTotems() {
+    var caja = $("totems");
+    caja.innerHTML = "";
+    if (!datos.pantallas.length) { caja.innerHTML = '<div class="vacio">Todavía no hay tótems registrados.</div>'; return; }
+    datos.pantallas.forEach(function (p) {
+      var usa = actual && p.diseno === actual.id;
+      var otro = !usa && p.diseno ? datos.disenos.filter(function (x) { return x.id === p.diseno; })[0] : null;
+      var fila = document.createElement("label");
+      fila.className = "totem-fila" + (usa ? " usa" : "");
+      fila.innerHTML = '<input type="checkbox"><div><span class="nom"></span><small></small></div>';
+      fila.querySelector(".nom").textContent = p.nombre;
+      fila.querySelector("small").textContent = usa ? "usa este diseño" : (otro ? "usa «" + otro.nombre + "»" : "solo el cajero (sin diseño)");
+      var caja2 = fila.querySelector("input");
+      caja2.checked = usa;
+      caja2.disabled = !actual;
+      caja2.addEventListener("change", function () {
+        if (caja2.checked && haySinGuardar()) avisar("Ojo: el tótem toma el diseño GUARDADO. Guarda tus cambios.", true);
+        var nuevo = caja2.checked ? actual.id : null;
+        pedir("POST", "/pantallas/" + encodeURIComponent(p.nombre) + "/", { diseno: nuevo }).then(function () {
+          avisar(caja2.checked ? "«" + p.nombre + "» va a mostrar este diseño." : "«" + p.nombre + "» vuelve a mostrar solo el cajero.");
+          cargar(actual.id);
+        }, function (e) { caja2.checked = !caja2.checked; avisar(e.message, true); });
+      });
+      caja.appendChild(fila);
+    });
+  }
+
+  // ------------------------------------------------------------ vista previa en vivo
+  function ajustarPrevia() {
+    var cont = $("previa-marco"), marco = $("previa");
+    if (!cont.clientWidth) return;
+    var escala = Math.min((cont.clientWidth - 10) / (1080 + 24), (cont.clientHeight - 10) / (1920 + 24));
+    marco.style.transform = "translate(-50%, -50%) scale(" + Math.max(escala, 0.05) + ")";
+  }
+  window.addEventListener("resize", ajustarPrevia);
+  $("b-grande").addEventListener("click", function () {
+    if (actual) window.open("/kiosco/editor/previa/" + actual.id + "/", "kiosco-previa", "width=620,height=1000");
+  });
+
+  window.addEventListener("beforeunload", function (e) { if (haySinGuardar()) { e.preventDefault(); e.returnValue = ""; } });
+
+  // ------------------------------------------------------------ videos
+  function cargarVideos() {
+    if (!$("lista-videos")) return;
+    pedir("GET", "/videos/").then(function (d) { pintarVideos(d.videos || []); }, function (e) { avisar(e.message, true); });
+  }
+
+  function mb(bytes) { return bytes == null ? "—" : (bytes / 1048576).toFixed(1) + " MB"; }
+
+  function pintarVideos(videos) {
+    var lista = $("lista-videos");
+    lista.innerHTML = "";
+    if (!videos.length) { lista.innerHTML = '<div class="vacio">Todavía no hay videos. Sube el primero a la izquierda.</div>'; return; }
+    videos.forEach(function (v, i) {
+      var fila = document.createElement("div");
+      fila.className = "video-fila" + (v.activo ? "" : " apagado");
+      fila.innerHTML =
+        '<video muted preload="metadata" controls></video>' +
+        '<div class="datos"><input type="text" maxlength="120">' +
+        '<div class="interruptores"><label><input type="checkbox" data-c="activo"> Se muestra en los tótems</label>' +
+        '<label><input type="checkbox" data-c="con_sonido"> Con sonido</label></div>' +
+        '<span class="peso"></span></div>' +
+        '<div class="botones"><button type="button" data-a="subir" title="Pasa antes">▲</button>' +
+        '<button type="button" data-a="bajar" title="Pasa después">▼</button>' +
+        '<button type="button" data-a="borrar" class="peligro" title="Borrar">🗑</button></div>';
+      fila.querySelector("video").src = v.url;
+      var titulo = fila.querySelector("input[type=text]");
+      titulo.value = v.titulo;
+      titulo.addEventListener("change", function () { patch(v.id, { titulo: titulo.value }); });
+      fila.querySelectorAll("[data-c]").forEach(function (c) {
+        c.checked = !!v[c.dataset.c];
+        c.addEventListener("change", function () { var cambio = {}; cambio[c.dataset.c] = c.checked; patch(v.id, cambio); });
+      });
+      fila.querySelector(".peso").textContent = (i + 1) + "º · " + mb(v.peso);
+      fila.querySelector('[data-a="subir"]').disabled = i === 0;
+      fila.querySelector('[data-a="bajar"]').disabled = i === videos.length - 1;
+      fila.querySelector('[data-a="subir"]').addEventListener("click", function () { reordenar(videos, i, i - 1); });
+      fila.querySelector('[data-a="bajar"]').addEventListener("click", function () { reordenar(videos, i, i + 1); });
+      var borrar = fila.querySelector('[data-a="borrar"]');
+      borrar.addEventListener("click", function () {
+        if (!borrar.dataset.seguro) { borrar.dataset.seguro = "1"; borrar.textContent = "¿Borrar?"; setTimeout(function () { borrar.dataset.seguro = ""; borrar.textContent = "🗑"; }, 4000); return; }
+        pedir("DELETE", "/videos/" + v.id + "/").then(function () { avisar("Video borrado."); cargarVideos(); }, function (e) { avisar(e.message, true); });
+      });
+      lista.appendChild(fila);
+    });
+  }
+
+  function patch(id, cambio) {
+    return pedir("PATCH", "/videos/" + id + "/", cambio).then(function () { avisar("Guardado. Los tótems lo toman en un minuto."); cargarVideos(); },
+      function (e) { avisar(e.message, true); cargarVideos(); });
+  }
+
+  function reordenar(videos, de, a) {
+    var orden = videos.map(function (v) { return v.id; });
+    var t = orden[de]; orden[de] = orden[a]; orden[a] = t;
+    Promise.all(orden.map(function (id, i) { return pedir("PATCH", "/videos/" + id + "/", { orden: i + 1 }); }))
+      .then(function () { cargarVideos(); avisar("Orden guardado."); }, function (e) { avisar(e.message, true); cargarVideos(); });
+  }
+
+  if ($("b-subir")) {
+    var zona = $("zona"), archivo = $("v-archivo");
+    ["dragenter", "dragover"].forEach(function (t) { zona.addEventListener(t, function (e) { e.preventDefault(); zona.classList.add("encima"); }); });
+    ["dragleave", "drop"].forEach(function (t) { zona.addEventListener(t, function (e) { e.preventDefault(); zona.classList.remove("encima"); }); });
+    zona.addEventListener("drop", function (e) { if (e.dataTransfer.files.length) archivo.files = e.dataTransfer.files; });
+    $("b-subir").addEventListener("click", function () {
+      var f = archivo.files[0];
+      if (!f) { avisar("Elige el archivo del video.", true); return; }
+      if (f.size > {{ max_video_mb }} * 1048576) { avisar("El video pasa de {{ max_video_mb }} MB.", true); return; }
+      var form = new FormData();
+      form.append("titulo", $("v-titulo").value);
+      form.append("archivo", f);
+      var xhr = new XMLHttpRequest();
+      var barra = $("progreso");
+      barra.style.display = "block";
+      $("b-subir").disabled = true;
+      xhr.upload.onprogress = function (e) { if (e.lengthComputable) barra.firstChild.style.width = Math.round(e.loaded * 100 / e.total) + "%"; };
+      xhr.onload = function () {
+        $("b-subir").disabled = false;
+        barra.style.display = "none"; barra.firstChild.style.width = "0";
+        var d = {};
+        try { d = JSON.parse(xhr.responseText); } catch (e) { /* nada */ }
+        if (xhr.status === 201) {
+          avisar("Video subido. Los tótems lo empiezan a pasar en un minuto.");
+          $("v-titulo").value = ""; archivo.value = "";
+          cargarVideos();
+        } else if (xhr.status === 413) {
+          avisar("El servidor no aceptó un archivo tan grande.", true);
+        } else {
+          avisar(d.error || d.detail || "No se pudo subir el video.", true);
+        }
+      };
+      xhr.onerror = function () { $("b-subir").disabled = false; barra.style.display = "none"; avisar("Se cortó la conexión al subir.", true); };
+      xhr.open("POST", API + "/videos/");
+      xhr.setRequestHeader("X-CSRFToken", cookie("csrftoken"));
+      xhr.send(form);
+    });
+  }
+
+  cargar();
+  setTimeout(ajustarPrevia, 50);
+})();
+</script>
+</body>
+</html>

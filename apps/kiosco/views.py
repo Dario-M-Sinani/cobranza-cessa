@@ -124,7 +124,9 @@ class ContenidoView(_KioscoView):
             diseno = pantalla.diseno.para_pantalla() if pantalla and pantalla.diseno else None
         modulos = {c["modulo"] for f in (diseno or {}).get("franjas", []) for c in f["celdas"]}
         videos = [
-            {"id": v.id, "titulo": v.titulo, "con_sonido": v.con_sonido, "version": v.subido_en.strftime("%Y%m%d%H%M%S")}
+            # La versión depende solo del archivo: cambiar el sonido o el orden no lo hace bajar de nuevo.
+            {"id": v.id, "titulo": v.titulo, "con_sonido": v.con_sonido,
+             "version": hashlib.sha1(v.archivo.name.encode()).hexdigest()[:10]}
             for v in VideoKiosco.objects.filter(activo=True)
         ] if "video" in modulos else []
         lista_preguntas = preguntas.preguntas() if "preguntas" in modulos else []
