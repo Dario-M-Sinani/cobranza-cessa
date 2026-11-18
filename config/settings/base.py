@@ -275,6 +275,10 @@ KIOSCO_HORARIO_CAJA = env("KIOSCO_HORARIO_CAJA", default="07:50-18:50")
 KIOSCO_PIN_TECNICO = env("KIOSCO_PIN_TECNICO", default="")
 # Minutos sin noticias de una pantalla (en horario) antes de avisar por Telegram.
 KIOSCO_MINUTOS_SIN_CONTACTO = env.int("KIOSCO_MINUTOS_SIN_CONTACTO", default=5)
+# Avisos del kiosco al bot de Telegram / correo (pantalla caída, sin contacto, caja cerrada...).
+# Apagado por defecto: avisaba demasiado. La pantalla igual se protege sola y la pantalla técnica
+# muestra el estado. KIOSCO_ALERTAS=true para volver a recibirlos.
+KIOSCO_ALERTAS = env.bool("KIOSCO_ALERTAS", default=False)
 CELERY_BEAT_SCHEDULE["vigilar-kioscos"] = {
     "task": "apps.kiosco.tasks.vigilar_kioscos",
     "schedule": 60.0,
