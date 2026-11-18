@@ -9,6 +9,7 @@ from functools import lru_cache
 from django.conf import settings
 from django.http import FileResponse, HttpResponse, HttpResponseForbidden
 from django.shortcuts import render
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -16,8 +17,23 @@ from rest_framework.views import APIView
 from apps.facturacion_externa.reporte import LOGO
 
 from . import avisos, galeria, preguntas, salud, services
-from .models import PagoKiosco, PantallaKiosco, VideoKiosco
-from .permissions import ConsultasPorKiosco, EsKiosco, IntentosDePin, ip_cliente, ip_permitida
+from .models import DisenoKiosco, PagoKiosco, PantallaKiosco, VideoKiosco
+from .permissions import (
+    PANTALLA_PREVIA,
+    ConsultasPorKiosco,
+    EsKiosco,
+    IntentosDePin,
+    es_personal,
+    ip_cliente,
+    ip_permitida,
+)
+
+# Lo que muestra la vista previa del admin en vez de revisar sistemas de verdad.
+ESTADO_PREVIA = {
+    "estado": "verde", "mensaje": "", "avisos": [], "puede_imprimir": True,
+    "revisiones": [{"clave": "previa", "titulo": "Vista previa del diseño", "estado": "verde",
+                    "texto": "no consulta deudas ni cobra"}],
+}
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +46,11 @@ def _logo_base64() -> str:
         return ""
 
 
+@xframe_options_sameorigin  # la vista previa del admin la muestra en un marco (mismo sitio)
 def pantalla(request):
     """La página del kiosco (HTML + JS sin build). El token de la pantalla llega una sola vez en
     `?k=...`, la página lo guarda en el navegador y lo manda en cada llamada a /api/kiosco/."""
-    if not ip_permitida(ip_cliente(request)):
+    if not ip_permitida(ip_cliente(request)) and not es_personal(request):
         return HttpResponseForbidden("Solo red interna.")
     respuesta = render(request, "kiosco/pantalla.html", {"logo": _logo_base64()})
     # Que la pantalla tome siempre la última versión al recargar (textos, teléfonos, recibo).
@@ -53,7 +70,11 @@ class EstadoView(_KioscoView):
     """GET /api/kiosco/estado/ -- la pantalla pregunta cada minuto si puede cobrar (apps/kiosco/salud.py).
     De paso el gateway sabe que la pantalla sigue prendida."""
 
+    permite_previa = True
+
     def get(self, request):
+        if request.kiosco == PANTALLA_PREVIA:
+            return Response(ESTADO_PREVIA)
         pantalla = salud.registrar_contacto(request.kiosco)
         return Response(salud.para_pantalla(request.kiosco, pantalla))
 
@@ -80,6 +101,8 @@ class AvisosView(_KioscoView):
     """GET /api/kiosco/avisos/ -- cortes programados y de emergencia de cessa.com.bo para la
     barra superior (los lee el gateway; la pantalla no tiene internet)."""
 
+    permite_previa = True
+
     def get(self, request):
         return Response({"avisos": avisos.avisos()})
 
@@ -87,11 +110,18 @@ class AvisosView(_KioscoView):
 class ContenidoView(_KioscoView):
     """GET /api/kiosco/contenido/ -- cómo se reparte esta pantalla (diseño elegido en el admin), los
     videos activos y las preguntas frecuentes de la web. `version` cambia si cambia algo: la
-    pantalla solo vuelve a armarse en ese caso."""
+    pantalla solo vuelve a armarse en ese caso. En la vista previa del admin, el diseño que se
+    está mirando (?diseno=<id>)."""
+
+    permite_previa = True
 
     def get(self, request):
-        pantalla = PantallaKiosco.objects.select_related("diseno").filter(nombre=request.kiosco).first()
-        diseno = pantalla.diseno.para_pantalla() if pantalla and pantalla.diseno else None
+        if request.kiosco == PANTALLA_PREVIA:
+            elegido = DisenoKiosco.objects.filter(pk=request.query_params.get("diseno") or 0).first()
+            diseno = elegido.para_pantalla() if elegido else None
+        else:
+            pantalla = PantallaKiosco.objects.select_related("diseno").filter(nombre=request.kiosco).first()
+            diseno = pantalla.diseno.para_pantalla() if pantalla and pantalla.diseno else None
         modulos = {c["modulo"] for f in (diseno or {}).get("franjas", []) for c in f["celdas"]}
         videos = [
             {"id": v.id, "titulo": v.titulo, "con_sonido": v.con_sonido, "version": v.subido_en.strftime("%Y%m%d%H%M%S")}
@@ -105,7 +135,9 @@ class ContenidoView(_KioscoView):
 
 class VideoView(_KioscoView):
     """GET /api/kiosco/videos/<id>/ -- el archivo de un video activo. La pantalla lo pide con su
-    token (no hay URL pública) y lo guarda en su caché."""
+    token (no hay URL pública) y lo guarda en su caché. El personal del admin también lo puede ver."""
+
+    permite_previa = True
 
     def get(self, request, id_video):
         video = VideoKiosco.objects.filter(pk=id_video, activo=True).first()
@@ -124,12 +156,16 @@ class VideoView(_KioscoView):
 class GaleriaView(_KioscoView):
     """GET /api/kiosco/galeria/ -- las fotos del carrusel de la web (protector de pantalla)."""
 
+    permite_previa = True
+
     def get(self, request):
         return Response({"fotos": [{"id": f["id"]} for f in galeria.fotos()]})
 
 
 class FotoView(_KioscoView):
     """GET /api/kiosco/galeria/<id>/ -- una foto del carrusel (la baja el gateway de la web)."""
+
+    permite_previa = True
 
     def get(self, request, id_foto):
         guardada = galeria.foto(id_foto)

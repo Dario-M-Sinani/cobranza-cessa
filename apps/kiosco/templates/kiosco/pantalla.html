@@ -405,6 +405,8 @@
   .faq-puntos span.activo { background: var(--ambar-400); }
   .m-pie { flex: none; text-align: center; font-size: clamp(12px, 3.4cqh, 17px); color: var(--azul-100); padding: 0 12px clamp(6px, 2cqh, 12px); }
   @media (prefers-reduced-motion: reduce) { .m-lista.corre, .faq-resp div.corre { animation: none; } }
+  #marca-previa { position: fixed; top: 12px; right: 12px; z-index: 100; pointer-events: none; background: #b91c1c; color: #fff;
+    font: 800 18px/1 "Segoe UI", sans-serif; letter-spacing: .06em; padding: 10px 16px; border-radius: 10px; box-shadow: 0 6px 18px rgba(0,0,0,.35); }
 </style>
 </head>
 <body>
@@ -576,20 +578,24 @@
 
   // ---------------------------------------------------------------- configuración de la pantalla
   // Se pasa una sola vez en la URL (?k=<token>&impresion=termica80) y queda guardada en el navegador.
+  var params = new URLSearchParams(location.search);
+  // ?previa=<id de diseño>: vista previa desde el admin (sesión del admin, sin token). Muestra el
+  // diseño pero el servidor no deja consultar deudas ni cobrar. No guarda nada en el navegador.
+  var disenoPrevia = /^\d+$/.test(params.get("previa") || "") ? params.get("previa") : "";
   function guardado(clave, valorUrl) {
+    if (disenoPrevia) return valorUrl || "";
     if (valorUrl) {
       try { localStorage.setItem(clave, valorUrl); } catch (e) { /* sin almacenamiento: sirve igual esta sesión */ }
       return valorUrl;
     }
     try { return localStorage.getItem(clave) || ""; } catch (e) { return ""; }
   }
-  var params = new URLSearchParams(location.search);
   var token = guardado("kiosco_token", params.get("k"));
   var impresion = guardado("kiosco_impresion", FORMATOS.indexOf(params.get("impresion")) !== -1 ? params.get("impresion") : "");
   if (FORMATOS.indexOf(impresion) === -1) impresion = "termica80";
   // confirmar=si (por defecto): pregunta antes de imprimir. confirmar=no: imprime sola al pagar.
   var confirmarImpresion = guardado("kiosco_confirmar", ["si", "no"].indexOf(params.get("confirmar")) !== -1 ? params.get("confirmar") : "") !== "no";
-  if (location.search) history.replaceState(null, "", location.pathname);
+  if (location.search && !disenoPrevia) history.replaceState(null, "", location.pathname);
 
   // ---------------------------------------------------------------- utilidades
   var $ = function (id) { return document.getElementById(id); };
@@ -1378,7 +1384,7 @@
   // Admin > Diseños de pantalla: franjas de arriba a abajo con el cajero, videos, cortes y
   // preguntas frecuentes. Se pregunta cada minuto; si cambió, se arma de nuevo al volver al
   // inicio (nunca en medio de un pago). Sin diseño, el cajero va a pantalla completa.
-  var CONTENIDO_MS = 60000;
+  var CONTENIDO_MS = disenoPrevia ? 5000 : 60000;  // en la vista previa se ve al guardar en el admin
   var CACHE_VIDEOS = "kiosco-videos";
   var contenido = { version: "", diseno: null, videos: [], preguntas: [] };
   var contenidoPendiente = null;
@@ -1394,10 +1400,10 @@
   }
 
   function cargarContenido() {
-    api("GET", "/contenido/").then(function (datos) {
+    api("GET", "/contenido/" + (disenoPrevia ? "?diseno=" + disenoPrevia : "")).then(function (datos) {
       if (!datos || datos.version === contenido.version) return;
       contenidoPendiente = datos;
-      if (!enMedioDeUnPago()) aplicarContenido();
+      if (disenoPrevia || !enMedioDeUnPago()) aplicarContenido();
     }, function () { /* sin red: se queda como está */ });
   }
 
@@ -1642,7 +1648,13 @@
   }
 
   // ---------------------------------------------------------------- arranque
-  if (!token) {
+  if (disenoPrevia) {
+    var marca = document.createElement("div");
+    marca.id = "marca-previa";
+    marca.textContent = "VISTA PREVIA · no cobra";
+    document.body.appendChild(marca);
+  }
+  if (!token && !disenoPrevia) {
     mostrar("p-sin-configurar");
   } else {
     pintarNumero();

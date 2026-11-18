@@ -1165,3 +1165,36 @@ class TestPreguntas:
             raise ValueError("sin red")
         monkeypatch.setattr(preguntas, "_leer", caida)
         assert preguntas.preguntas() == [{"pregunta": "A", "respuesta": "B"}]
+
+
+@pytest.mark.django_db
+class TestVistaPrevia:
+    def _personal(self, staff=True):
+        from django.contrib.auth import get_user_model
+        usuario = get_user_model().objects.create_user(username=f"u{staff}", password=None, is_staff=staff)
+        c = APIClient()
+        c.force_login(usuario)
+        return c
+
+    def test_el_personal_ve_el_diseno_sin_token(self, monkeypatch):
+        monkeypatch.setattr(preguntas, "preguntas", lambda: [])
+        d = _diseno_vertical()
+        c = self._personal()
+        datos = c.get(f"/api/kiosco/contenido/?diseno={d.id}", HTTP_X_REAL_IP="200.87.1.10").json()
+        assert datos["diseno"]["nombre"] == "Vertical"
+        estado = c.get("/api/kiosco/estado/").json()
+        assert estado["estado"] == "verde" and estado["revisiones"][0]["clave"] == "previa"
+        assert not PantallaKiosco.objects.filter(nombre="vista-previa").exists()  # no se registra como pantalla
+        assert c.get("/kiosco/?previa=1", HTTP_X_REAL_IP="200.87.1.10").status_code == 200
+
+    def test_en_la_vista_previa_no_se_consulta_ni_se_cobra(self, sip):
+        c = self._personal()
+        r = c.get("/api/kiosco/clientes/153896/")
+        assert r.status_code == 403 and "vista previa" in r.json()["detail"]
+        assert c.post("/api/kiosco/qr/", {"nro_cliente": "153896", "cantidad": 1}, format="json").status_code == 403
+        assert sip.generados == []
+
+    def test_sin_ser_personal_no_hay_vista_previa(self):
+        c = self._personal(staff=False)
+        assert c.get("/api/kiosco/contenido/").status_code == 403
+        assert APIClient().get("/api/kiosco/estado/").status_code == 403

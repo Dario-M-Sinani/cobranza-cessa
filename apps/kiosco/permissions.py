@@ -2,6 +2,7 @@ import hmac
 import ipaddress
 
 from django.conf import settings
+from django.contrib.auth import get_user
 from rest_framework import permissions
 from rest_framework.throttling import SimpleRateThrottle
 
@@ -35,20 +36,42 @@ def kiosco_de_token(token: str) -> str | None:
     return None
 
 
+PANTALLA_PREVIA = "vista-previa"
+
+
+def es_personal(request) -> bool:
+    """Usuario del admin con sesión iniciada (staff activo). Las vistas del kiosco no usan la
+    autenticación de DRF: se mira la sesión de Django de la petición original."""
+    original = getattr(request, "_request", request)
+    if not hasattr(original, "session"):
+        return False
+    # DRF pisa request.user con AnonymousUser (estas vistas no tienen authentication_classes):
+    # se lee el usuario directo de la sesión.
+    usuario = get_user(original)
+    return bool(usuario and usuario.is_authenticated and usuario.is_active and usuario.is_staff)
+
+
 class EsKiosco(permissions.BasePermission):
     """Solo pantallas de la red interna con su token (header X-Kiosco-Token). Las dos cosas: el
-    token solo no basta si alguien lo copia fuera de la red, y la red sola no dice qué pantalla es."""
+    token solo no basta si alguien lo copia fuera de la red, y la red sola no dice qué pantalla es.
+
+    Vista previa del admin: el personal con sesión del admin puede ver la pantalla sin token, pero
+    solo en las vistas marcadas `permite_previa` (estado, avisos, fotos, contenido, videos): nunca
+    consulta deudas ni genera QR."""
 
     message = "Pantalla no autorizada."
 
     def has_permission(self, request, view):
-        if not ip_permitida(ip_cliente(request)):
-            return False
         nombre = kiosco_de_token(request.headers.get("X-Kiosco-Token", ""))
-        if not nombre:
-            return False
-        request.kiosco = nombre
-        return True
+        if nombre and ip_permitida(ip_cliente(request)):
+            request.kiosco = nombre
+            return True
+        if not nombre and es_personal(request):
+            if getattr(view, "permite_previa", False):
+                request.kiosco = PANTALLA_PREVIA
+                return True
+            self.message = "En la vista previa no se consultan deudas ni se cobra."
+        return False
 
 
 class IntentosDePin(SimpleRateThrottle):
