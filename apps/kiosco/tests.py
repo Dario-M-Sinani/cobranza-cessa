@@ -1026,10 +1026,20 @@ class TestPantallaTecnica:
 @pytest.mark.django_db
 class TestVigilancia:
     @pytest.fixture
-    def enviados(self, monkeypatch):
+    def enviados(self, monkeypatch, settings):
+        settings.KIOSCO_ALERTAS = True
         lista = []
         monkeypatch.setattr(salud, "notificar", lambda asunto, texto: lista.append((asunto, texto)) or 1)
         return lista
+
+    def test_con_alertas_apagadas_no_manda_nada_pero_lleva_el_estado(self, sip, settings, impresora_de_red, monkeypatch):
+        settings.KIOSCO_ALERTAS = False
+        monkeypatch.setattr(salud, "notificar", lambda *a: pytest.fail("no debería mandar a Telegram"))
+        settings.KIOSCO_IMPRESORAS = {"oficina-central": impresora_de_red.direccion}
+        impresora_de_red("sin_papel")
+        salud.vigilar()
+        assert salud.vigilar() == 0
+        assert PantallaKiosco.objects.get(nombre="oficina-central").problemas_avisados == "impresora:sin_papel"
 
     def test_avisa_cuando_el_problema_sigue_en_la_segunda_pasada(self, sip, settings, impresora_de_red, enviados):
         settings.KIOSCO_IMPRESORAS = {"oficina-central": impresora_de_red.direccion}

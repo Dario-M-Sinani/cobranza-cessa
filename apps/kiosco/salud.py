@@ -302,7 +302,9 @@ def vigilar() -> int:
             pantalla.problemas_nuevos, pantalla.veces_nuevos = problemas, 1
 
         if pantalla.problemas_nuevos == problemas and problemas != pantalla.problemas_avisados and pantalla.veces_nuevos >= 2:
-            if notificar(*_mensaje(nombre, revisiones)):
+            # Con KIOSCO_ALERTAS apagado (por defecto) se sigue llevando el estado, pero no se manda
+            # nada al bot de Telegram ni por correo.
+            if settings.KIOSCO_ALERTAS and notificar(*_mensaje(nombre, revisiones)):
                 avisos += 1
             pantalla.problemas_avisados = problemas
             pantalla.problemas_nuevos, pantalla.veces_nuevos = "", 0
