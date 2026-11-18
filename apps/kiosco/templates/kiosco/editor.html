@@ -70,7 +70,8 @@
   .divisor-h::after { content: "⇕"; }
   .divisor-v::after { content: "⇔"; }
   .divisor-h:hover::before, .divisor-v:hover::before, .arrastrando::before { background: #fff; }
-  .acciones-totem { display: flex; gap: 8px; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
+  .acciones-totem { display: flex; gap: 8px; justify-content: center; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .agregar-et { font-weight: 700; color: var(--gris-700); font-size: 14px; }
 
   /* Menú de un cuadro */
   #menu { position: fixed; inset: 0; background: rgba(0,20,40,.45); display: none; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
@@ -162,7 +163,12 @@
       <p class="ayuda"><b>Arrastra las líneas amarillas</b> para agrandar o achicar. <b>Toca un cuadro</b> para cambiar lo que muestra,
         partirlo en dos o quitarlo.</p>
       <div class="escenario"><div class="totem" id="totem"></div></div>
-      <div class="acciones-totem"><button type="button" id="b-franja">＋ Agregar franja abajo</button></div>
+      <div class="acciones-totem">
+        <span class="agregar-et">Agregar franja:</span>
+        <button type="button" id="b-franja-arriba">＋ Arriba</button>
+        <button type="button" id="b-franja" class="primario">＋ Abajo</button>
+      </div>
+      <p class="ayuda" style="text-align:center;margin:6px 0 0">Para poner un cuadro a la izquierda o a la derecha, toca el cuadro.</p>
     </div>
     <div class="panel">
       <h2>2 · Así se ve</h2>
@@ -207,7 +213,7 @@
 (function () {
   "use strict";
   var API = "/api/kiosco/editor";
-  var ICONOS = { cajero: "🧾", video: "🎬", cortes: "⚡", preguntas: "❓" };
+  var ICONOS = { cajero: "🧾", video: "🎬", cortes: "", preguntas: "" };
   var MIN_ALTO = 6;   // % mínimo de una franja al arrastrar
   var $ = function (id) { return document.getElementById(id); };
 
@@ -309,7 +315,7 @@
 
   function pintarTodo() {
     var hay = !!actual;
-    ["nombre", "b-copiar", "b-borrar", "b-franja", "b-grande"].forEach(function (id) { $(id).disabled = !hay; });
+    ["nombre", "b-copiar", "b-borrar", "b-franja", "b-franja-arriba", "b-grande"].forEach(function (id) { $(id).disabled = !hay; });
     pintarTotem();
     pintarTotems();
     pintarEstado();
@@ -519,8 +525,12 @@
     }
     var libres = datos.modulos.map(function (m) { return m.valor; }).filter(function (v) { return usados().indexOf(v) === -1; });
     if (!f.modulo_2) {
-      boton("◧ Partir en dos (otro cuadro al lado)", libres.length > 0, function () {
+      // A la derecha es lo de siempre; a la izquierda, por si acaso.
+      boton("◨ Agregar un cuadro a la derecha", libres.length > 0, function () {
         f.modulo_2 = libres[0]; f.ancho = 50; cambio();
+      });
+      boton("◧ Agregar un cuadro a la izquierda", libres.length > 0, function () {
+        f.modulo_2 = f.modulo; f.modulo = libres[0]; f.ancho = 50; cambio();
       });
     }
     boton("▲ Subir esta franja", fila > 0, function () {
@@ -549,13 +559,16 @@
     $("menu").classList.add("visible");
   }
 
-  $("b-franja").addEventListener("click", function () {
+  function agregarFranja(arriba) {
     var libres = datos.modulos.map(function (m) { return m.valor; }).filter(function (v) { return usados().indexOf(v) === -1; });
     if (!libres.length) { avisar("Ya están todos los cuadros. Para agregar otro, primero quita uno.", true); return; }
     actual.franjas.forEach(function (f) { f.alto = f.alto * 0.8; });
-    actual.franjas.push({ modulo: libres[0], alto: 20, modulo_2: "", ancho: 100 });
+    var nueva = { modulo: libres[0], alto: 20, modulo_2: "", ancho: 100 };
+    if (arriba) actual.franjas.unshift(nueva); else actual.franjas.push(nueva);
     cambio();
-  });
+  }
+  $("b-franja").addEventListener("click", function () { agregarFranja(false); });
+  $("b-franja-arriba").addEventListener("click", function () { agregarFranja(true); });
 
   // ------------------------------------------------------------ barra de arriba
   $("sel-diseno").addEventListener("change", function () {

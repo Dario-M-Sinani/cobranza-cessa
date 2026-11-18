@@ -371,25 +371,39 @@
     background: linear-gradient(160deg, #003a70, var(--azul-950)); color: var(--azul-100); font-size: clamp(16px, 4cqh, 30px); text-align: center; padding: 16px; }
   .m-vacio img { height: clamp(40px, 22cqh, 120px); background: #fff; border-radius: 16px; padding: 10px 18px; }
 
-  /* Cortes y preguntas: tarjetas sobre azul oscuro, con título amarillo. */
+  /* Cortes y preguntas: azul oscuro, título blanco con una marca amarilla (sin íconos). */
   .m-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; background: linear-gradient(170deg, #003a70, var(--azul-950)); color: #fff; container: modulo / size; }
-  .m-titulo { flex: none; display: flex; align-items: center; gap: 10px; padding: clamp(8px, 3cqh, 18px) clamp(14px, 4cqw, 28px);
-    background: var(--ambar-400); color: var(--azul-950); font-weight: 900; text-transform: uppercase; letter-spacing: .05em; font-size: clamp(15px, 5.5cqh, 26px); }
+  .m-titulo { flex: none; display: flex; flex-direction: column; gap: .2em; padding: clamp(10px, 3.6cqh, 22px) clamp(14px, 4.5cqw, 30px) clamp(8px, 2.6cqh, 16px);
+    border-bottom: 1px solid rgba(255,255,255,.12); }
+  .m-titulo .t { display: flex; align-items: center; gap: .55em; font-weight: 800; font-size: clamp(16px, 6cqh, 30px); letter-spacing: .01em; line-height: 1.1; color: #fff; }
+  .m-titulo .t::before { content: ""; flex: none; width: .28em; height: 1.05em; border-radius: 99px; background: var(--ambar-400); }
+  .m-titulo small { font-size: clamp(12px, 3.6cqh, 17px); color: var(--azul-200); padding-left: .85em; font-weight: 500; }
   .m-cuerpo { flex: 1; min-height: 0; overflow: hidden; position: relative; padding: clamp(10px, 3cqh, 22px) clamp(14px, 4cqw, 28px); }
-  .m-nada { color: var(--azul-100); font-size: clamp(15px, 5cqh, 24px); text-align: center; margin-top: 4cqh; }
-  /* Cortes: lista que sube sola si no entra. */
-  .m-lista { display: flex; flex-direction: column; gap: clamp(8px, 2.5cqh, 16px); }
+  .m-nada { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .5em; text-align: center;
+    color: var(--azul-100); font-size: clamp(14px, 4.6cqh, 22px); }
+  .m-nada b { color: #fff; font-size: 1.15em; }
+  .m-nada .linea { display: inline-block; margin-top: .3em; padding: .35em .9em; border-radius: 99px; background: rgba(255,231,30,.14);
+    border: 1px solid rgba(255,231,30,.4); color: var(--ambar-200); }
+  /* Cortes: tarjetas con la fecha a la izquierda; si no entran, la lista sube sola. */
+  .m-lista { display: flex; flex-direction: column; gap: clamp(8px, 2.5cqh, 14px); }
   .m-lista.corre { animation: subir linear infinite; }
   @keyframes subir { from { transform: translateY(0); } to { transform: translateY(-50%); } }
-  .corte { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.16); border-left: 6px solid var(--ambar-400);
-    border-radius: 12px; padding: clamp(8px, 2.6cqh, 16px) clamp(12px, 3cqw, 20px); font-size: clamp(15px, 4.6cqh, 24px); line-height: 1.3; }
-  .corte b { display: inline-block; color: var(--azul-950); background: var(--ambar-400); border-radius: 6px; padding: 1px 10px; margin-bottom: 4px; font-size: .8em; text-transform: uppercase; }
-  .corte.emergencia { border-left-color: #ef4444; }
-  .corte.emergencia b { background: #b91c1c; color: #fff; }
-  .corte.restablecido { border-left-color: var(--verde-700); }
-  .corte.restablecido b { background: var(--verde-700); color: #fff; }
-  .corte .cuando { display: block; font-weight: 800; color: #fff; }
-  .corte .donde { display: block; color: var(--azul-100); }
+  .corte { display: flex; gap: clamp(10px, 3cqw, 18px); align-items: stretch; background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: clamp(8px, 2.4cqh, 14px); font-size: clamp(13px, 4.2cqh, 21px); line-height: 1.3; }
+  .corte .fecha { flex: none; width: 4.2em; border-radius: 10px; background: #fff; color: var(--azul-950); display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: .35em 0; text-transform: uppercase; }
+  .corte .fecha span { font-size: .62em; font-weight: 700; letter-spacing: .06em; color: var(--gris-500); }
+  .corte .fecha b { font-size: 1.6em; font-weight: 900; line-height: 1; }
+  .corte .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .15em; justify-content: center; }
+  .corte .tipo { align-self: flex-start; font-size: .66em; font-weight: 800; text-transform: uppercase; letter-spacing: .06em;
+    padding: .2em .7em; border-radius: 99px; background: rgba(255,231,30,.16); color: var(--ambar-400); }
+  .corte .hora { font-weight: 800; color: #fff; }
+  .corte .zonas { color: var(--azul-100); }
+  .corte .motivo { color: var(--azul-200); font-size: .82em; }
+  .corte.emergencia .fecha { background: #fee2e2; color: #991b1b; }
+  .corte.emergencia .tipo { background: #b91c1c; color: #fff; }
+  .corte.restablecido .fecha { background: var(--verde-100); color: var(--verde-800); }
+  .corte.restablecido .tipo { background: var(--verde-700); color: #fff; }
   /* Preguntas: una por vez, se van turnando; la respuesta larga sube sola. */
   .faq { position: absolute; inset: clamp(10px, 3cqh, 22px) clamp(14px, 4cqw, 28px); display: flex; flex-direction: column; gap: 2cqh;
     opacity: 0; transition: opacity .8s ease; }
@@ -429,7 +443,7 @@
   </div>
   <div class="ayuda-linea"><b>176</b> Línea gratuita de emergencias · Atención al Cliente: (591-4) 64-53126 · 72877668</div>
 </div>
-<div class="avisos" id="avisos"><div class="titulo">⚡ Cortes de energía</div><div class="pista"><div class="cinta" id="avisos-cinta"></div></div></div>
+<div class="avisos" id="avisos"><div class="titulo">Cortes de energía</div><div class="pista"><div class="cinta" id="avisos-cinta"></div></div></div>
 <div class="franja" id="franja"><span><b>176</b> Línea gratuita de emergencias</span><span>Atención al Cliente: (591-4) 64-53126 · 72877668</span></div>
 <header>
   {% if logo %}<img src="data:image/png;base64,{{ logo }}" alt="CESSA">{% endif %}
@@ -1454,11 +1468,12 @@
     document.body.classList.toggle("con-cortes", hayCortes);
   }
 
-  function panelModulo(titulo) {
+  function panelModulo(titulo, bajada) {
     var caja = document.createElement("div");
     caja.className = "m-panel";
-    caja.innerHTML = '<div class="m-titulo"></div><div class="m-cuerpo"></div>';
-    caja.querySelector(".m-titulo").textContent = titulo;
+    caja.innerHTML = '<div class="m-titulo"><span class="t"></span><small></small></div><div class="m-cuerpo"></div>';
+    caja.querySelector(".m-titulo .t").textContent = titulo;
+    caja.querySelector(".m-titulo small").textContent = bajada || "";
     return caja;
   }
 
@@ -1555,10 +1570,35 @@
 
   // --- cortes: tarjetas con los mismos avisos de la cinta; si no entran, suben solas
   function crearCortes() {
-    var caja = panelModulo("⚡ Cortes de energía");
+    var caja = panelModulo("Cortes de energía", "Programados y de emergencia");
     cuerpoCortes = caja.querySelector(".m-cuerpo");
     requestAnimationFrame(pintarCortes);
     return caja;
+  }
+
+  var MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+  function tarjetaCorte(a) {
+    var tarjeta = document.createElement("div");
+    tarjeta.className = "corte" + (a.tipo === "emergencia" ? (a.restablecido ? " restablecido" : " emergencia") : "");
+    var f = (a.fecha || "").split("-");
+    var dia = f.length === 3 ? new Date(Number(f[0]), Number(f[1]) - 1, Number(f[2])) : new Date();
+    var hora = a.restablecido ? "Servicio restablecido"
+      : a.tipo === "programado" && a.desde ? a.desde + (a.hasta ? " a " + a.hasta : "")
+      : a.desde ? "Desde las " + a.desde : "";
+    tarjeta.innerHTML =
+      '<div class="fecha"><span></span><b></b><span></span></div>' +
+      '<div class="info"><span class="tipo"></span><span class="hora"></span><span class="zonas"></span><span class="motivo"></span></div>';
+    var partes = tarjeta.querySelectorAll(".fecha > *");
+    partes[0].textContent = DIAS[dia.getDay()].slice(0, 3);
+    partes[1].textContent = String(dia.getDate());
+    partes[2].textContent = MESES_CORTOS[dia.getMonth()];
+    tarjeta.querySelector(".tipo").textContent = a.tipo === "emergencia" ? (a.restablecido ? "Restablecido" : "Emergencia") : "Programado";
+    tarjeta.querySelector(".hora").textContent = hora;
+    tarjeta.querySelector(".zonas").textContent = a.zonas || "";
+    tarjeta.querySelector(".motivo").textContent = a.motivo ? a.motivo.charAt(0) + a.motivo.slice(1).toLowerCase() : "";
+    ["hora", "zonas", "motivo"].forEach(function (c) { var el = tarjeta.querySelector("." + c); if (!el.textContent) el.remove(); });
+    return tarjeta;
   }
 
   function pintarCortes() {
@@ -1566,24 +1606,14 @@
     if (!cuerpo) return;
     cuerpo.innerHTML = "";
     if (!avisosActuales.length) {
-      cuerpo.innerHTML = '<div class="m-nada">No hay cortes programados.<br><br>Emergencias: línea gratuita <b>176</b></div>';
+      cuerpo.innerHTML = '<div class="m-nada"><b>Sin cortes programados</b><span>Ante una emergencia, llama gratis al</span>' +
+        '<span class="linea">Línea 176</span></div>';
       return;
     }
     var lista = document.createElement("div");
     lista.className = "m-lista";
     function agregar() {
-      avisosActuales.forEach(function (a) {
-        var tarjeta = document.createElement("div");
-        tarjeta.className = "corte" + (a.tipo === "emergencia" ? (a.restablecido ? " restablecido" : " emergencia") : "");
-        var b = document.createElement("b");
-        b.textContent = a.tipo === "emergencia" ? (a.restablecido ? "Servicio restablecido" : "Corte de emergencia") : "Corte programado";
-        var texto = document.createElement("span");
-        texto.className = "donde";
-        texto.textContent = textoAviso(a);
-        tarjeta.appendChild(b);
-        tarjeta.appendChild(texto);
-        lista.appendChild(tarjeta);
-      });
+      avisosActuales.forEach(function (a) { lista.appendChild(tarjetaCorte(a)); });
     }
     agregar();
     cuerpo.appendChild(lista);
@@ -1597,7 +1627,7 @@
 
   // --- preguntas frecuentes: una por vez; si la respuesta es larga, sube despacio
   function crearPreguntas() {
-    var caja = panelModulo("❓ Preguntas frecuentes");
+    var caja = panelModulo("Preguntas frecuentes", "Lo que más nos consultan");
     var cuerpo = caja.querySelector(".m-cuerpo");
     var lista = contenido.preguntas || [];
     if (!lista.length) {
