@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 
+from django.conf import settings
 from django.contrib.auth import views as auth_views
 from django.db.models import Max
 from django.http import HttpResponseForbidden
@@ -63,6 +64,7 @@ def pagina(request):
         "usuario": request.user.get_full_name() or request.user.get_username(),
         "puede_videos": puede_editar(request.user, PERMISO_VIDEOS),
         "max_video_mb": MAX_VIDEO_MB,
+        "cookie_csrf": settings.CSRF_COOKIE_NAME,
     })
 
 

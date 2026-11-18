@@ -213,6 +213,7 @@
 (function () {
   "use strict";
   var API = "/api/kiosco/editor";
+  var COOKIE_CSRF = "{{ cookie_csrf|escapejs }}";
   var ICONOS = { cajero: "🧾", video: "🎬", cortes: "", preguntas: "" };
   var MIN_ALTO = 6;   // % mínimo de una franja al arrastrar
   var $ = function (id) { return document.getElementById(id); };
@@ -229,7 +230,7 @@
   function pedir(metodo, ruta, cuerpo) {
     return fetch(API + ruta, {
       method: metodo, credentials: "same-origin",
-      headers: { "Content-Type": "application/json", "X-CSRFToken": cookie("csrftoken") },
+      headers: { "Content-Type": "application/json", "X-CSRFToken": cookie(COOKIE_CSRF) },
       body: cuerpo ? JSON.stringify(cuerpo) : undefined
     }).then(function (r) {
       if (r.status === 204) return {};
@@ -751,7 +752,7 @@
       };
       xhr.onerror = function () { $("b-subir").disabled = false; barra.style.display = "none"; avisar("Se cortó la conexión al subir.", true); };
       xhr.open("POST", API + "/videos/");
-      xhr.setRequestHeader("X-CSRFToken", cookie("csrftoken"));
+      xhr.setRequestHeader("X-CSRFToken", cookie(COOKIE_CSRF));
       xhr.send(form);
     });
   }
