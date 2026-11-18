@@ -19,6 +19,10 @@ ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[])
 # prod en :8443), así que Django los toma por otro sitio si no se listan acá.
 # Ej.: CSRF_TRUSTED_ORIGINS=https://test01.cessa.com.bo:8443,https://10.1.1.88:8443
 CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
+# Test (:443) y prod (:8443) están en el mismo dominio y los navegadores no separan las cookies
+# por puerto: con el mismo nombre, entrar en uno cierra la sesión del otro. Prod usa otros nombres.
+SESSION_COOKIE_NAME = env("SESSION_COOKIE_NAME", default="sessionid")
+CSRF_COOKIE_NAME = env("CSRF_COOKIE_NAME", default="csrftoken")
 
 # Orígenes del SPA (React) autorizados a llamar esta API vía CORS.
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=["http://localhost:5174"])
