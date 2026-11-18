@@ -14,6 +14,11 @@ environ.Env.read_env(BASE_DIR / ".env")
 SECRET_KEY = env("SECRET_KEY")
 DEBUG = env("DEBUG")
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[])
+# Formularios con sesión (login del editor del kiosco, admin) servidos en un puerto no estándar:
+# nginx pasa el Host sin el puerto y el navegador manda el Origin con puerto (ej. el panel de
+# prod en :8443), así que Django los toma por otro sitio si no se listan acá.
+# Ej.: CSRF_TRUSTED_ORIGINS=https://test01.cessa.com.bo:8443,https://10.1.1.88:8443
+CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 
 # Orígenes del SPA (React) autorizados a llamar esta API vía CORS.
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=["http://localhost:5174"])
