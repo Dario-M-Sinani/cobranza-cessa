@@ -1198,3 +1198,79 @@ class TestVistaPrevia:
         c = self._personal(staff=False)
         assert c.get("/api/kiosco/contenido/").status_code == 403
         assert APIClient().get("/api/kiosco/estado/").status_code == 403
+
+
+@pytest.mark.django_db
+class TestEditor:
+    @pytest.fixture
+    def editor(self):
+        from django.contrib.auth import get_user_model
+        from django.core.management import call_command
+        usuario = get_user_model().objects.create_user(username="mkt", password="x")  # no es staff
+        call_command("crear_grupo_kiosco", usuario="mkt")
+        c = APIClient(enforce_csrf_checks=False)
+        c.force_login(usuario)
+        return c
+
+    def test_pagina_pide_login_y_solo_red_interna(self):
+        r = _cliente().get("/kiosco/editor/", HTTP_X_REAL_IP="10.10.20.5")
+        assert r.status_code == 302 and r["Location"].endswith("/kiosco/editor/entrar/")
+        assert _cliente().get("/kiosco/editor/entrar/", HTTP_X_REAL_IP="200.87.1.10").status_code == 403
+
+    def test_usuario_sin_grupo_no_edita(self):
+        from django.contrib.auth import get_user_model
+        c = APIClient()
+        c.force_login(get_user_model().objects.create_user(username="cajera", password="x"))
+        assert c.get("/kiosco/editor/", HTTP_X_REAL_IP="10.10.20.5").status_code == 403
+        assert c.get("/api/kiosco/editor/", HTTP_X_REAL_IP="10.10.20.5").status_code == 403
+
+    def test_crear_guardar_y_asignar(self, editor):
+        r = editor.post("/api/kiosco/editor/disenos/", {"nombre": "Mi diseño"}, format="json", HTTP_X_REAL_IP="10.10.20.5")
+        assert r.status_code == 201
+        id_diseno = r.json()["id"]
+        assert r.json()["franjas"] == [{"modulo": "cajero", "alto": 100, "modulo_2": "", "ancho": 100}]
+        franjas = [{"modulo": "video", "alto": 30.4}, {"modulo": "cajero", "alto": 52.2},
+                   {"modulo": "cortes", "alto": 17.4, "modulo_2": "preguntas", "ancho": 41.6}]
+        r = editor.put(f"/api/kiosco/editor/disenos/{id_diseno}/", {"nombre": "Vertical", "franjas": franjas},
+                       format="json", HTTP_X_REAL_IP="10.10.20.5")
+        assert r.status_code == 200, r.json()
+        guardadas = r.json()["franjas"]
+        assert [f["alto"] for f in guardadas] == [30, 53, 17] and sum(f["alto"] for f in guardadas) == 100
+        assert guardadas[2] == {"modulo": "cortes", "alto": 17, "modulo_2": "preguntas", "ancho": 42}
+        PantallaKiosco.objects.create(nombre="oficina-central")
+        r = editor.post("/api/kiosco/editor/pantallas/oficina-central/", {"diseno": id_diseno}, format="json", HTTP_X_REAL_IP="10.10.20.5")
+        assert r.status_code == 200
+        assert PantallaKiosco.objects.get(nombre="oficina-central").diseno_id == id_diseno
+        # Lo usa un tótem: no se puede borrar.
+        assert editor.delete(f"/api/kiosco/editor/disenos/{id_diseno}/", HTTP_X_REAL_IP="10.10.20.5").status_code == 400
+
+    def test_no_guarda_un_diseno_sin_cajero_o_repetido(self, editor):
+        d = _diseno_vertical()
+        for franjas in ([{"modulo": "video", "alto": 100}],
+                        [{"modulo": "cajero", "alto": 50}, {"modulo": "video", "alto": 50, "modulo_2": "video", "ancho": 50}]):
+            r = editor.put(f"/api/kiosco/editor/disenos/{d.id}/", {"franjas": franjas}, format="json", HTTP_X_REAL_IP="10.10.20.5")
+            assert r.status_code == 400 and r.json()["error"]
+        assert d.franjas.count() == 3  # quedó como estaba
+
+    def test_videos(self, editor, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        r = editor.post("/api/kiosco/editor/videos/", {"titulo": "Campaña", "archivo": SimpleUploadedFile("spot.mp4", b"mp4")},
+                        format="multipart", HTTP_X_REAL_IP="10.10.20.5")
+        assert r.status_code == 201
+        video = VideoKiosco.objects.get()
+        assert video.titulo == "Campaña" and (tmp_path / video.archivo.name).exists()
+        malo = editor.post("/api/kiosco/editor/videos/", {"archivo": SimpleUploadedFile("virus.exe", b"x")},
+                           format="multipart", HTTP_X_REAL_IP="10.10.20.5")
+        assert malo.status_code == 400
+        editor.patch(f"/api/kiosco/editor/videos/{video.id}/", {"activo": False, "con_sonido": True}, format="json", HTTP_X_REAL_IP="10.10.20.5")
+        video.refresh_from_db()
+        assert not video.activo and video.con_sonido
+        ruta = tmp_path / video.archivo.name
+        assert editor.delete(f"/api/kiosco/editor/videos/{video.id}/", HTTP_X_REAL_IP="10.10.20.5").status_code == 204
+        assert not VideoKiosco.objects.exists() and not ruta.exists()  # el archivo también se borra
+
+    def test_el_editor_ve_la_vista_previa(self, editor, monkeypatch):
+        monkeypatch.setattr(preguntas, "preguntas", lambda: [])
+        d = _diseno_vertical()
+        assert editor.get(f"/api/kiosco/contenido/?diseno={d.id}").json()["diseno"]["nombre"] == "Vertical"
+        assert editor.get("/api/kiosco/clientes/153896/").status_code == 403

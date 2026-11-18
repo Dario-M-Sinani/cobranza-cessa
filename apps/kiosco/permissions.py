@@ -39,8 +39,19 @@ def kiosco_de_token(token: str) -> str | None:
 PANTALLA_PREVIA = "vista-previa"
 
 
+PERMISO_DISENO = "kiosco.change_disenokiosco"
+PERMISO_VIDEOS = "kiosco.change_videokiosco"
+
+
+def puede_editar(usuario, permiso: str = PERMISO_DISENO) -> bool:
+    """Quien arma la pantalla: el personal del admin o un usuario del grupo «Contenido del kiosco»
+    (manage.py crear_grupo_kiosco), que entra solo al editor de /kiosco/editor/."""
+    return bool(usuario and usuario.is_authenticated and usuario.is_active
+                and (usuario.is_superuser or usuario.has_perm(permiso)))
+
+
 def es_personal(request) -> bool:
-    """Usuario del admin con sesión iniciada (staff activo). Las vistas del kiosco no usan la
+    """Usuario con sesión iniciada que puede editar la pantalla. Las vistas del kiosco no usan la
     autenticación de DRF: se mira la sesión de Django de la petición original."""
     original = getattr(request, "_request", request)
     if not hasattr(original, "session"):
@@ -48,7 +59,20 @@ def es_personal(request) -> bool:
     # DRF pisa request.user con AnonymousUser (estas vistas no tienen authentication_classes):
     # se lee el usuario directo de la sesión.
     usuario = get_user(original)
-    return bool(usuario and usuario.is_authenticated and usuario.is_active and usuario.is_staff)
+    return puede_editar(usuario) or bool(usuario and usuario.is_active and usuario.is_staff)
+
+
+class PuedeEditarPantalla(permissions.BasePermission):
+    """API del editor: sesión con permiso de diseño (o de videos, en las vistas de videos) y desde
+    la red interna."""
+
+    message = "Inicia sesión con un usuario que pueda editar la pantalla."
+
+    def has_permission(self, request, view):
+        if not ip_permitida(ip_cliente(request)):
+            self.message = "El editor solo se usa desde la red interna."
+            return False
+        return puede_editar(request.user, getattr(view, "permiso", PERMISO_DISENO))
 
 
 class EsKiosco(permissions.BasePermission):

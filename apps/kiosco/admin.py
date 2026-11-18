@@ -7,6 +7,7 @@ from django.shortcuts import get_object_or_404, render
 from django.urls import path, reverse
 from django.utils.html import format_html, format_html_join
 
+from . import disenos
 from .models import DisenoKiosco, EnvioFactura, FranjaDiseno, Modulo, PagoKiosco, PantallaKiosco, VideoKiosco
 
 COLORES = {
@@ -46,23 +47,16 @@ class FranjasFormSet(forms.BaseInlineFormSet):
         super().clean()
         if any(self.errors):
             return
-        usados = []
+        franjas = []
         for form in self.forms:
             datos = getattr(form, "cleaned_data", None) or {}
             if not datos or datos.get("DELETE"):
                 continue
-            usados.append(datos["modulo"])
-            if datos.get("modulo_2"):
-                usados.append(datos["modulo_2"])
-                if not 15 <= (datos.get("ancho") or 0) <= 85:
-                    raise forms.ValidationError("Con dos cuadros en una franja, el ancho del primero va entre 15 y 85 %.")
-            if not 5 <= (datos.get("alto") or 0) <= 100:
-                raise forms.ValidationError("El alto de cada franja va entre 5 y 100.")
-        if usados.count(Modulo.CAJERO) != 1:
-            raise forms.ValidationError("El diseño tiene que tener el cajero exactamente una vez.")
-        repetidos = {m for m in usados if usados.count(m) > 1}
-        if repetidos:
-            raise forms.ValidationError("Cada cuadro va una sola vez: " + ", ".join(Modulo(m).label for m in repetidos))
+            franjas.append({"modulo": datos.get("modulo"), "alto": datos.get("alto") or 0,
+                            "modulo_2": datos.get("modulo_2") or "", "ancho": datos.get("ancho") or 0})
+        problemas = disenos.errores(franjas)
+        if problemas:
+            raise forms.ValidationError(problemas)
 
 
 class FranjaForm(forms.ModelForm):
