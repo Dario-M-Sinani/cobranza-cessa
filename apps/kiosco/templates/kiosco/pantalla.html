@@ -46,49 +46,51 @@
   /* Cabecera como la de la web: franja azul arriba, barra blanca con el logo. */
   .franja {
     background: var(--azul-900); border-bottom: 1px solid var(--azul-950); color: #fff;
-    font-size: clamp(13px, 1.8vh, 16px); padding: 0.8vh 32px; display: flex; justify-content: space-between; gap: 16px;
+    font-size: clamp(13px, 1.8cqh, 16px); padding: 0.8cqh 32px; display: flex; justify-content: space-between; gap: 16px;
   }
   .franja b { color: var(--ambar-400); }
   .franja span:last-child { color: var(--azul-100); }
   .franja.con-avisos { display: none; }
 
   /* Barra de avisos de cortes (los de la web), corre de derecha a izquierda. */
-  .avisos { display: none; background: var(--azul-950); color: #fff; font-size: clamp(13px, 1.8vh, 17px); overflow: hidden; align-items: stretch; flex: none; }
+  .avisos { display: none; background: var(--azul-950); color: #fff; font-size: clamp(13px, 1.8cqh, 17px); overflow: hidden; align-items: stretch; flex: none; }
   .avisos.visible { display: flex; }
   .avisos .titulo {
     flex: none; background: var(--ambar-400); color: var(--azul-950); font-weight: 800; text-transform: uppercase;
-    letter-spacing: .06em; padding: .6vh 14px; display: flex; align-items: center; gap: 6px; z-index: 1;
+    letter-spacing: .06em; padding: .6cqh 14px; display: flex; align-items: center; gap: 6px; z-index: 1;
   }
   .avisos .pista { flex: 1; overflow: hidden; display: flex; align-items: center; }
   .avisos .cinta { display: inline-flex; white-space: nowrap; animation: correr linear infinite; will-change: transform; }
-  .avisos .item { padding: .6vh 0; margin-right: 56px; }
+  .avisos .item { padding: .6cqh 0; margin-right: 56px; }
   .avisos .item b { color: var(--ambar-400); margin-right: 8px; }
   .avisos .item.emergencia b { background: #b91c1c; color: #fff; padding: 2px 10px; border-radius: 6px; }
   .avisos .item.restablecido b { background: var(--verde-700); color: #fff; padding: 2px 10px; border-radius: 6px; }
   @keyframes correr { from { transform: translateX(0); } to { transform: translateX(-50%); } }
   header {
     background: #fff; border-bottom: 1px solid var(--gris-200); box-shadow: 0 1px 3px rgba(0,0,0,.06);
-    display: flex; align-items: center; gap: 20px; padding: 1.2vh 32px;
+    display: flex; align-items: center; gap: 20px; padding: 1.2cqh 32px;
   }
-  header img { height: clamp(40px, 6.5vh, 60px); }
-  header .marca { font-size: clamp(18px, 2.6vh, 24px); font-weight: 800; color: var(--azul-950); line-height: 1.1; }
+  header img { height: clamp(40px, 6.5cqh, 60px); }
+  header .marca { font-size: clamp(18px, 2.6cqh, 24px); font-weight: 800; color: var(--azul-950); line-height: 1.1; }
   header .marca small { display: block; font-size: 0.6em; font-weight: 600; color: var(--gris-500); }
 
-  main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 2vh 24px; min-height: 0; overflow-y: auto; }
+  /* "safe center": si el contenido no entra, arranca arriba y se puede bajar (con center a secas
+     la parte de arriba quedaba cortada y sin scroll). */
+  main { flex: 1; display: flex; align-items: safe center; justify-content: safe center; padding: 2cqh 24px; min-height: 0; overflow-y: auto; }
   .pantalla { display: none; width: 100%; max-width: 980px; max-height: 100%; }
-  .pantalla.activa { display: flex; flex-direction: column; align-items: center; gap: clamp(10px, 2.2vh, 24px); }
+  .pantalla.activa { display: flex; flex-direction: column; align-items: center; gap: clamp(10px, 2.2cqh, 24px); }
 
   .pastilla {
     display: inline-block; padding: 6px 16px; background: var(--azul-50); border: 1px solid var(--azul-200);
-    color: var(--azul-900); border-radius: 999px; font-size: clamp(12px, 1.7vh, 15px); font-weight: 700;
+    color: var(--azul-900); border-radius: 999px; font-size: clamp(12px, 1.7cqh, 15px); font-weight: 700;
     text-transform: uppercase; letter-spacing: .08em;
   }
-  h2 { margin: 0; font-size: clamp(28px, 4.6vh, 44px); font-weight: 800; color: var(--azul-950); text-align: center; }
-  p.ayuda { margin: 0; font-size: clamp(17px, 2.5vh, 23px); color: var(--gris-600); text-align: center; }
+  h2 { margin: 0; font-size: clamp(28px, 4.6cqh, 44px); font-weight: 800; color: var(--azul-950); text-align: center; }
+  p.ayuda { margin: 0; font-size: clamp(17px, 2.5cqh, 23px); color: var(--gris-600); text-align: center; }
 
   button {
     font: inherit; border: 0; border-radius: 14px; cursor: pointer;
-    min-height: clamp(56px, 8vh, 80px); padding: 0 32px; font-size: clamp(20px, 3vh, 28px); font-weight: 800;
+    min-height: clamp(56px, 8cqh, 80px); padding: 0 32px; font-size: clamp(20px, 3cqh, 28px); font-weight: 800;
   }
   button:active { transform: scale(0.97); }
   button:disabled { opacity: 0.5; }
@@ -100,38 +102,63 @@
   /* Inicio: teclado */
   .tarjeta-gris {
     background: var(--gris-50); border: 1px solid var(--gris-200); border-radius: 24px; box-shadow: 0 1px 2px rgba(0,0,0,.05);
-    padding: clamp(16px, 2.6vh, 32px); display: flex; flex-direction: column; align-items: center; gap: clamp(10px, 1.8vh, 20px);
+    padding: clamp(16px, 2.6cqh, 32px); display: flex; flex-direction: column; align-items: center; gap: clamp(10px, 1.8cqh, 20px);
   }
-  .etiqueta { font-size: clamp(13px, 1.8vh, 16px); font-weight: 700; color: #374151; text-transform: uppercase; letter-spacing: .08em; }
+  .etiqueta { font-size: clamp(13px, 1.8cqh, 16px); font-weight: 700; color: #374151; text-transform: uppercase; letter-spacing: .08em; }
   .numero {
-    width: 520px; max-width: 100%; height: clamp(60px, 9.5vh, 96px); border-radius: 14px; background: #fff;
+    width: 520px; max-width: 100%; height: clamp(60px, 9.5cqh, 96px); border-radius: 14px; background: #fff;
     border: 2px solid var(--azul-900); font-family: Consolas, "Courier New", monospace;
-    font-size: clamp(36px, 6vh, 56px); font-weight: 700; letter-spacing: 6px;
+    font-size: clamp(36px, 6cqh, 56px); font-weight: 700; letter-spacing: 6px;
     display: flex; align-items: center; justify-content: center; color: var(--azul-950);
   }
-  .numero.vacio { border-color: var(--gris-300); color: #9ca3af; font-size: clamp(20px, 3vh, 28px); font-weight: 400; letter-spacing: 0; font-family: inherit; }
+  .numero.vacio { border-color: var(--gris-300); color: #9ca3af; font-size: clamp(20px, 3cqh, 28px); font-weight: 400; letter-spacing: 0; font-family: inherit; }
   .teclado { display: grid; grid-template-columns: repeat(3, 156px); gap: 14px; }
   .teclado button {
     /* Sin el padding de 32px de los botones grandes: en una tecla de 156px, "Consultar" y
        "Buscando…" no cabían y el texto se corría a la derecha. */
     padding: 0 6px; white-space: nowrap; text-align: center;
-    min-height: clamp(54px, 9vh, 96px); font-size: clamp(30px, 5vh, 44px); background: #fff; color: var(--gris-900);
+    min-height: clamp(54px, 9cqh, 96px); font-size: clamp(30px, 5cqh, 44px); background: #fff; color: var(--gris-900);
     border: 1px solid var(--gris-300); box-shadow: 0 1px 2px rgba(0,0,0,.05); font-weight: 700;
   }
-  .teclado button.borrar { font-size: clamp(18px, 2.6vh, 24px); color: var(--rojo-600); }
-  .teclado button.ok { background: var(--ambar-500); color: var(--azul-950); border: 0; font-size: clamp(18px, 2.6vh, 24px); font-weight: 800; }
+  .teclado button.borrar { font-size: clamp(18px, 2.6cqh, 24px); color: var(--rojo-600); }
+  .teclado button.ok { background: var(--ambar-500); color: var(--azul-950); border: 0; font-size: clamp(18px, 2.6cqh, 24px); font-weight: 800; }
 
   /* Deuda */
   .tarjeta { background: #fff; border: 1px solid var(--gris-200); border-radius: 20px; width: 100%; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
-  .cliente { padding: clamp(14px, 2vh, 22px) 28px; background: var(--gris-50); border-bottom: 1px solid var(--gris-200); }
-  .cliente .nombre { font-size: clamp(24px, 3.6vh, 34px); font-weight: 800; color: var(--azul-950); }
-  .cliente .nro { font-size: clamp(16px, 2.2vh, 20px); color: var(--gris-600); margin-top: 2px; }
+  /* Si la pantalla es baja, lo que se achica es la lista de meses (que tiene su propio scroll), no
+     la tarjeta: antes la tarjeta se encogía y tapaba las últimas filas, que no se podían alcanzar. */
+  .pantalla.activa > * { flex-shrink: 0; }
+  /* La deuda ocupa todo el alto disponible y la lista de meses se estira hasta llenarlo (en una
+     tele o un tótem entran todos o casi todos los meses sin tener que deslizar). */
+  #p-deuda.activa { height: 100%; justify-content: center; }
+  #p-deuda .tarjeta { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  #p-deuda .cliente { flex: none; }
+  #p-deuda .meses { flex: 1 1 auto; min-height: 120px; max-height: none; }
+  #p-deuda .d-lado { display: contents; }
+  /* Pantalla horizontal (tele): meses a la izquierda a todo el alto, total y botones a la derecha. */
+  @container cajero (orientation: landscape) and (min-width: 1100px) {
+    #p-deuda.activa {
+      display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(380px, 1fr); gap: clamp(20px, 2.4cqw, 40px);
+      max-width: 1680px; align-items: stretch;
+    }
+    #p-deuda .tarjeta { height: 100%; align-self: stretch; }
+    #p-deuda .mes { padding-top: clamp(8px, 1.15cqh, 14px); padding-bottom: clamp(8px, 1.15cqh, 14px); }
+    #p-deuda .d-lado { display: flex; flex-direction: column; justify-content: center; gap: clamp(14px, 2.4cqh, 26px); min-height: 0; }
+    #p-deuda .resumen { flex-direction: column; align-items: stretch; text-align: center; gap: clamp(14px, 2.4cqh, 24px); padding: clamp(18px, 3cqh, 32px); }
+    #p-deuda .resumen .total b { font-size: clamp(40px, 6.4cqh, 68px); }
+    #p-deuda .resumen .acciones { flex-direction: column-reverse; }
+    #p-deuda .resumen .acciones button { width: 100%; }
+    #p-deuda .nota-antiguo { align-self: center; text-align: center; }
+  }
+  .cliente { padding: clamp(14px, 2cqh, 22px) 28px; background: var(--gris-50); border-bottom: 1px solid var(--gris-200); }
+  .cliente .nombre { font-size: clamp(24px, 3.6cqh, 34px); font-weight: 800; color: var(--azul-950); }
+  .cliente .nro { font-size: clamp(16px, 2.2cqh, 20px); color: var(--gris-600); margin-top: 2px; }
   .cliente .nro b { font-family: Consolas, monospace; color: var(--gris-900); }
-  .meses { max-height: 40vh; overflow-y: auto; }
+  .meses { overflow-y: auto; }
   /* Sin casillas: se toca la fila del mes hasta el que se paga y quedan pintadas esa y las anteriores. */
   .mes {
-    display: flex; align-items: center; gap: 20px; padding: clamp(12px, 1.8vh, 18px) 28px; border-top: 1px solid var(--gris-200);
-    border-left: 8px solid transparent; font-size: clamp(19px, 2.8vh, 26px); cursor: pointer; transition: background .15s, border-color .15s;
+    display: flex; align-items: center; gap: 20px; padding: clamp(12px, 1.8cqh, 18px) 28px; border-top: 1px solid var(--gris-200);
+    border-left: 8px solid transparent; font-size: clamp(19px, 2.8cqh, 26px); cursor: pointer; transition: background .15s, border-color .15s;
   }
   .mes:first-child { border-top: 0; }
   .mes { color: var(--gris-500); }
@@ -151,44 +178,48 @@
 
   /* Resumen = panel azul de la web con el botón ámbar. */
   .resumen {
-    width: 100%; background: var(--azul-900); color: #fff; border-radius: 18px; padding: clamp(14px, 2vh, 22px) 28px;
+    width: 100%; background: var(--azul-900); color: #fff; border-radius: 18px; padding: clamp(14px, 2cqh, 22px) 28px;
     display: flex; align-items: center; justify-content: space-between; gap: 24px;
   }
-  .resumen .total { font-size: clamp(18px, 2.6vh, 24px); color: var(--azul-100); }
-  .resumen .total b { display: block; font-size: clamp(30px, 4.8vh, 44px); color: #fff; font-family: Consolas, monospace; }
+  .resumen .total { font-size: clamp(18px, 2.6cqh, 24px); color: var(--azul-100); }
+  .resumen .total b { display: block; font-size: clamp(30px, 4.8cqh, 44px); color: #fff; font-family: Consolas, monospace; }
   .resumen .acciones { display: flex; gap: 16px; }
   .resumen .secundario { background: transparent; color: #fff; border-color: var(--azul-300); }
-  .vacio-deuda { padding: 28px; font-size: clamp(20px, 3vh, 26px); text-align: center; }
+  .vacio-deuda { padding: 28px; font-size: clamp(20px, 3cqh, 26px); text-align: center; }
   .vacio-deuda.ok { background: var(--verde-50); color: var(--verde-800); }
   .vacio-deuda.aviso { background: var(--ambar-50); color: var(--ambar-900); }
   /* Avisos antes del QR (sin impresora, factura más tarde): el cliente decide si paga igual. */
   .avisos-pago { width: 100%; display: none; flex-direction: column; gap: 8px; }
   .avisos-pago.visible { display: flex; }
   .avisos-pago div { background: var(--ambar-50); border: 1px solid var(--ambar-200); color: var(--ambar-900); border-radius: 14px;
-    padding: 10px 18px; font-size: clamp(16px, 2.2vh, 20px); font-weight: 600; text-align: center; }
+    padding: 10px 18px; font-size: clamp(16px, 2.2cqh, 20px); font-weight: 600; text-align: center; }
 
   /* QR = modal de pago de la web. */
-  .qr-tarjeta { background: #fff; border: 1px solid var(--gris-200); border-radius: 24px; box-shadow: 0 20px 40px rgba(0,51,95,.15); padding: clamp(14px, 2.4vh, 28px) 40px; display: flex; flex-direction: column; align-items: center; gap: clamp(8px, 1.6vh, 16px); }
-  .qr-tarjeta img { width: min(38vh, 420px); height: min(38vh, 420px); display: block; image-rendering: pixelated; border: 1px solid var(--gris-200); border-radius: 14px; }
-  .monto-etiqueta { font-size: clamp(13px, 1.8vh, 16px); color: var(--gris-500); text-transform: uppercase; font-weight: 700; letter-spacing: .06em; text-align: center; }
-  .monto { font-size: clamp(32px, 5vh, 46px); font-weight: 900; color: var(--azul-900); font-family: Consolas, monospace; text-align: center; }
-  .cuenta { background: var(--ambar-50); border: 1px solid var(--ambar-200); border-radius: 14px; padding: 8px 24px; text-align: center; color: var(--ambar-900); font-weight: 700; font-size: clamp(16px, 2.2vh, 20px); }
-  .cuenta b { display: block; font-family: Consolas, monospace; font-size: clamp(24px, 3.6vh, 32px); color: var(--ambar-700); }
+  .qr-tarjeta { background: #fff; border: 1px solid var(--gris-200); border-radius: 24px; box-shadow: 0 20px 40px rgba(0,51,95,.15); padding: clamp(14px, 2.4cqh, 28px) 40px; display: flex; flex-direction: column; align-items: center; gap: clamp(8px, 1.6cqh, 16px); }
+  .qr-tarjeta img { width: min(38cqh, 420px); height: min(38cqh, 420px); display: block; image-rendering: pixelated; border: 1px solid var(--gris-200); border-radius: 14px; }
+  /* Tótem vertical: sobra alto, el QR más grande se escanea mejor desde el celular. */
+  @container cajero (orientation: portrait) { .qr-tarjeta img { width: min(32cqh, 70cqw, 620px); height: min(32cqh, 70cqw, 620px); } }
+  /* Pantallas bajas (laptop): un poco más chico para que "Cancelar" entre sin deslizar. */
+  @container cajero (orientation: landscape) and (max-height: 760px) { .qr-tarjeta img { width: 32cqh; height: 32cqh; } }
+  .monto-etiqueta { font-size: clamp(13px, 1.8cqh, 16px); color: var(--gris-500); text-transform: uppercase; font-weight: 700; letter-spacing: .06em; text-align: center; }
+  .monto { font-size: clamp(32px, 5cqh, 46px); font-weight: 900; color: var(--azul-900); font-family: Consolas, monospace; text-align: center; }
+  .cuenta { background: var(--ambar-50); border: 1px solid var(--ambar-200); border-radius: 14px; padding: 8px 24px; text-align: center; color: var(--ambar-900); font-weight: 700; font-size: clamp(16px, 2.2cqh, 20px); }
+  .cuenta b { display: block; font-family: Consolas, monospace; font-size: clamp(24px, 3.6cqh, 32px); color: var(--ambar-700); }
   .cuenta.poco b { color: var(--rojo-600); }
 
   /* Resultado */
-  .icono { width: clamp(110px, 16vh, 150px); height: clamp(110px, 16vh, 150px); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: clamp(60px, 9vh, 88px); font-weight: 800; background: var(--verde-100); color: var(--verde-700); }
+  .icono { width: clamp(110px, 16cqh, 150px); height: clamp(110px, 16cqh, 150px); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: clamp(60px, 9cqh, 88px); font-weight: 800; background: var(--verde-100); color: var(--verde-700); }
   .icono.aviso { background: var(--ambar-50); color: var(--ambar-700); border: 3px solid var(--ambar-200); }
   .icono.error { background: var(--rojo-50); color: var(--rojo-600); }
   .icono.espera { background: var(--azul-50); }
   #r-titulo.exito { color: var(--verde-800); }
-  .impresion { display: flex; align-items: center; gap: 12px; font-size: clamp(18px, 2.6vh, 23px); color: var(--azul-900); font-weight: 700; background: var(--azul-50); border: 1px solid var(--azul-200); border-radius: 14px; padding: 12px 22px; text-align: center; justify-content: center; }
+  .impresion { display: flex; align-items: center; gap: 12px; font-size: clamp(18px, 2.6cqh, 23px); color: var(--azul-900); font-weight: 700; background: var(--azul-50); border: 1px solid var(--azul-200); border-radius: 14px; padding: 12px 22px; text-align: center; justify-content: center; }
   .acciones-resultado { display: flex; gap: 16px; }
 
   .pregunta {
     display: flex; flex-direction: column; align-items: center; gap: 14px; background: var(--azul-50);
-    border: 1px solid var(--azul-200); border-radius: 18px; padding: clamp(12px, 2vh, 20px) 32px;
-    font-size: clamp(20px, 3vh, 28px); font-weight: 800; color: var(--azul-950);
+    border: 1px solid var(--azul-200); border-radius: 18px; padding: clamp(12px, 2cqh, 20px) 32px;
+    font-size: clamp(20px, 3cqh, 28px); font-weight: 800; color: var(--azul-950);
   }
   .girando { width: 56px; height: 56px; border: 7px solid var(--azul-200); border-top-color: var(--azul-900); border-radius: 50%; animation: girar 1s linear infinite; }
   .impresion .girando { width: 26px; height: 26px; border-width: 4px; }
@@ -196,7 +227,7 @@
 
   #aviso {
     position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); max-width: 90%;
-    background: var(--rojo-50); color: var(--rojo-800); border: 1px solid #fecaca; font-size: clamp(18px, 2.6vh, 23px); font-weight: 600;
+    background: var(--rojo-50); color: var(--rojo-800); border: 1px solid #fecaca; font-size: clamp(18px, 2.6cqh, 23px); font-weight: 600;
     padding: 16px 28px; border-radius: 14px; display: none; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,.12);
   }
   #aviso.visible { display: block; }
@@ -204,24 +235,24 @@
 
   /* Fondo dinámico: manchas suaves con los colores de la web que se mueven despacio, y una
      onda de "energía" abajo. Solo transform/opacity (sin blur): no carga el equipo del kiosco. */
-  .fondo { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none;
+  .fondo { position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none;
     background: linear-gradient(160deg, #f7fbff 0%, var(--azul-50) 55%, var(--azul-100) 100%); }
   .fondo .mancha { position: absolute; border-radius: 50%; will-change: transform; animation: flotar ease-in-out infinite alternate; }
-  .fondo .m1 { width: 70vmax; height: 70vmax; left: -25vmax; top: -30vmax; animation-duration: 26s;
+  .fondo .m1 { width: 70cqmax; height: 70cqmax; left: -25cqmax; top: -30cqmax; animation-duration: 26s;
     background: radial-gradient(circle, rgba(0,76,152,.16) 0%, rgba(0,76,152,0) 65%); }
-  .fondo .m2 { width: 60vmax; height: 60vmax; right: -22vmax; bottom: -28vmax; animation-duration: 32s; animation-delay: -8s;
+  .fondo .m2 { width: 60cqmax; height: 60cqmax; right: -22cqmax; bottom: -28cqmax; animation-duration: 32s; animation-delay: -8s;
     background: radial-gradient(circle, rgba(255,231,30,.30) 0%, rgba(255,231,30,0) 65%); }
-  .fondo .m3 { width: 45vmax; height: 45vmax; right: 5vmax; top: 10vmax; animation-duration: 38s; animation-delay: -15s;
+  .fondo .m3 { width: 45cqmax; height: 45cqmax; right: 5cqmax; top: 10cqmax; animation-duration: 38s; animation-delay: -15s;
     background: radial-gradient(circle, rgba(130,195,242,.28) 0%, rgba(130,195,242,0) 65%); }
-  .fondo .m4 { width: 35vmax; height: 35vmax; left: 10vmax; bottom: -5vmax; animation-duration: 29s; animation-delay: -20s;
+  .fondo .m4 { width: 35cqmax; height: 35cqmax; left: 10cqmax; bottom: -5cqmax; animation-duration: 29s; animation-delay: -20s;
     background: radial-gradient(circle, rgba(0,51,95,.10) 0%, rgba(0,51,95,0) 65%); }
   @keyframes flotar {
     0%   { transform: translate(0, 0) scale(1); }
-    50%  { transform: translate(8vw, 6vh) scale(1.12); }
-    100% { transform: translate(-6vw, 10vh) scale(.92); }
+    50%  { transform: translate(8cqw, 6cqh) scale(1.12); }
+    100% { transform: translate(-6cqw, 10cqh) scale(.92); }
   }
-  .fondo .ondas { position: absolute; left: 0; bottom: 0; width: 200%; height: 22vh; animation: ondear 40s linear infinite; will-change: transform; }
-  .fondo .ondas.lenta { opacity: .6; animation-duration: 65s; animation-direction: reverse; height: 28vh; }
+  .fondo .ondas { position: absolute; left: 0; bottom: 0; width: 200%; height: 22cqh; animation: ondear 40s linear infinite; will-change: transform; }
+  .fondo .ondas.lenta { opacity: .6; animation-duration: 65s; animation-direction: reverse; height: 28cqh; }
   @keyframes ondear { from { transform: translateX(0); } to { transform: translateX(-50%); } }
   /* Algunas fotos del carrusel de la web, muy tenues, para que el fondo no quede blanco. */
   .fondo .foto { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 3s ease-in-out; }
@@ -229,21 +260,21 @@
 
   /* Protector de pantalla: el carrusel de la web a pantalla completa mientras nadie usa el kiosco. */
   .avisos { position: relative; z-index: 60; }
-  #protector { position: fixed; inset: 0; z-index: 50; display: none; background: var(--azul-950); overflow: hidden; color: #fff; cursor: pointer; }
+  #protector { position: absolute; inset: 0; z-index: 50; display: none; background: var(--azul-950); overflow: hidden; color: #fff; cursor: pointer; }
   #protector.visible { display: block; }
   #protector .foto { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 1.5s ease-in-out; animation: acercar 16s ease-in-out infinite alternate; }
   #protector .foto.activa { opacity: 1; }
   @keyframes acercar { from { transform: scale(1); } to { transform: scale(1.08); } }
   #protector .velo { position: absolute; inset: 0; background: linear-gradient(rgba(0,20,40,.45), rgba(0,20,40,.75)); }
-  #protector .contenido { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3vh; text-align: center; padding: 24px; }
+  #protector .contenido { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3cqh; text-align: center; padding: 24px; }
   #protector .logo { background: #fff; border-radius: 20px; padding: 14px 26px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
-  #protector .logo img { height: clamp(50px, 8vh, 80px); display: block; }
-  #protector h1 { margin: 0; font-size: clamp(40px, 7vh, 72px); font-weight: 900; text-shadow: 0 4px 18px rgba(0,0,0,.4); }
-  #protector p { margin: 0; font-size: clamp(20px, 3vh, 30px); color: var(--azul-100); }
-  #protector .toca { margin-top: 2vh; background: var(--ambar-500); color: var(--azul-950); font-weight: 800; font-size: clamp(22px, 3.4vh, 32px);
-    padding: 2vh 48px; border-radius: 999px; box-shadow: 0 10px 30px rgba(0,0,0,.3); animation: latir 2s ease-in-out infinite; }
+  #protector .logo img { height: clamp(50px, 8cqh, 80px); display: block; }
+  #protector h1 { margin: 0; font-size: clamp(40px, 7cqh, 72px); font-weight: 900; text-shadow: 0 4px 18px rgba(0,0,0,.4); }
+  #protector p { margin: 0; font-size: clamp(20px, 3cqh, 30px); color: var(--azul-100); }
+  #protector .toca { margin-top: 2cqh; background: var(--ambar-500); color: var(--azul-950); font-weight: 800; font-size: clamp(22px, 3.4cqh, 32px);
+    padding: 2cqh 48px; border-radius: 999px; box-shadow: 0 10px 30px rgba(0,0,0,.3); animation: latir 2s ease-in-out infinite; }
   @keyframes latir { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
-  #protector .ayuda-linea { position: absolute; bottom: 3vh; left: 0; right: 0; text-align: center; font-size: clamp(15px, 2vh, 19px); color: var(--azul-100); }
+  #protector .ayuda-linea { position: absolute; bottom: 3cqh; left: 0; right: 0; text-align: center; font-size: clamp(15px, 2cqh, 19px); color: var(--azul-100); }
   #protector .ayuda-linea b { color: var(--ambar-400); }
 
   @media (prefers-reduced-motion: reduce) { .fondo .mancha, .fondo .ondas, #protector .foto, #protector .toca { animation: none; } }
@@ -263,7 +294,7 @@
   #r-titulo.exito { color: #86efac; }
   main p.ayuda { color: var(--azul-100); }
   .nota-antiguo { margin: 0; padding: 4px 14px; border-radius: 999px; background: rgba(255,231,30,.14); border: 1px solid rgba(255,231,30,.45);
-    color: var(--ambar-400); font-size: clamp(13px, 1.7vh, 16px); font-weight: 600; text-align: center; }
+    color: var(--ambar-400); font-size: clamp(13px, 1.7cqh, 16px); font-weight: 600; text-align: center; }
   .pantalla > .pastilla { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.28); color: #fff; }
   .tarjeta-gris { background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.22); box-shadow: 0 20px 40px rgba(0,0,0,.25); }
   .tarjeta-gris .etiqueta { color: var(--azul-100); }
@@ -274,8 +305,8 @@
 
   /* Arranque y pantalla técnica: lista de revisiones (salud.py). */
   .revisiones { width: min(720px, 100%); }
-  .revision { display: flex; align-items: center; gap: 14px; padding: clamp(10px, 1.6vh, 14px) 22px; border-bottom: 1px solid var(--gris-200);
-    font-size: clamp(17px, 2.4vh, 21px); }
+  .revision { display: flex; align-items: center; gap: 14px; padding: clamp(10px, 1.6cqh, 14px) 22px; border-bottom: 1px solid var(--gris-200);
+    font-size: clamp(17px, 2.4cqh, 21px); }
   .revision:last-child { border-bottom: 0; }
   .revision .marca-r { width: 34px; height: 34px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
     font-weight: 800; background: var(--gris-50); color: var(--gris-500); border: 2px solid var(--gris-200); }
@@ -287,7 +318,7 @@
   .revision .texto-r { margin-left: auto; text-align: right; color: var(--gris-600); }
   .revision.rojo .texto-r { color: var(--rojo-600); font-weight: 700; }
   .revision.amarillo .texto-r { color: var(--ambar-900); font-weight: 700; }
-  #a-pie { font-size: clamp(18px, 2.6vh, 22px); min-height: 1.4em; }
+  #a-pie { font-size: clamp(18px, 2.6cqh, 22px); min-height: 1.4em; }
   /* Arranque "vistoso": cada revisión espera girando y se marca de a una, con una barra de avance. */
   .revision { transition: background-color .4s ease, opacity .4s ease; }
   .revision.esperando { opacity: .55; }
@@ -303,20 +334,82 @@
   .progreso.verde span { background: #4ade80; }
   .progreso.rojo span { background: #f87171; }
 
-  #tecnico { position: fixed; inset: 0; z-index: 60; display: none; background: rgba(0,20,40,.88); align-items: center; justify-content: center; padding: 3vh; }
+  #tecnico { position: fixed; inset: 0; z-index: 60; display: none; background: rgba(0,20,40,.88); align-items: center; justify-content: center; padding: 3cqh; }
   #tecnico.visible { display: flex; }
-  #tecnico .panel { background: #fff; border-radius: 22px; padding: clamp(16px, 2.6vh, 28px) 28px; width: min(820px, 100%); max-height: 100%; overflow: auto;
+  #tecnico .panel { background: #fff; border-radius: 22px; padding: clamp(16px, 2.6cqh, 28px) 28px; width: min(820px, 100%); max-height: 100%; overflow: auto;
     display: flex; flex-direction: column; align-items: center; gap: 16px; }
-  #tecnico h3 { margin: 0; font-size: clamp(22px, 3.2vh, 30px); color: var(--azul-950); }
+  #tecnico h3 { margin: 0; font-size: clamp(22px, 3.2cqh, 30px); color: var(--azul-950); }
   #tecnico .pin { font-family: Consolas, monospace; font-size: 40px; letter-spacing: 14px; min-height: 52px; color: var(--azul-950); }
   #tecnico .teclado button { background: var(--azul-50); }
   #tecnico .teclado button.ok { background: var(--ambar-500); }
   #tecnico .info { width: 100%; font-size: 14px; color: var(--gris-600); display: flex; flex-wrap: wrap; gap: 4px 18px; justify-content: center; }
   #tecnico .error-pin { color: var(--rojo-600); font-weight: 700; min-height: 1.2em; }
   #tecnico .acciones-resultado { flex-wrap: wrap; justify-content: center; }
+
+  /* ---------------- Diseño de la pantalla (admin > Diseños de pantalla) ----------------
+     El cajero es un cuadro más: todo lo de adentro se mide con cqh/cqw (relativo al cuadro, no a
+     la pantalla), así entra igual a pantalla completa o en una franja. */
+  #cajero {
+    container: cajero / size; position: relative; isolation: isolate; overflow: hidden;
+    display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0;
+  }
+  #disposicion { flex: 1; display: flex; flex-direction: column; min-height: 0; background: #000; gap: 0; }
+  #disposicion[hidden] { display: none; }
+  .fila-d { display: flex; min-height: 0; flex-basis: 0; }
+  .celda-d { position: relative; overflow: hidden; min-width: 0; min-height: 0; flex-basis: 0; display: flex; flex-direction: column; }
+  .celda-d > #cajero { flex: 1; }
+  .celda-d + .celda-d { border-left: 3px solid var(--azul-950); }
+  .fila-d + .fila-d { border-top: 3px solid var(--azul-950); }
+  /* Con cuadros propios de cortes, la cinta de cortes del cajero sobra. */
+  body.con-cortes .avisos { display: none !important; }
+  body.con-cortes .franja.con-avisos { display: flex; }
+
+  /* Videos */
+  .m-video { flex: 1; position: relative; background: #000; container: modulo / size; }
+  .m-video video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  .m-vacio { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2cqh;
+    background: linear-gradient(160deg, #003a70, var(--azul-950)); color: var(--azul-100); font-size: clamp(16px, 4cqh, 30px); text-align: center; padding: 16px; }
+  .m-vacio img { height: clamp(40px, 22cqh, 120px); background: #fff; border-radius: 16px; padding: 10px 18px; }
+
+  /* Cortes y preguntas: tarjetas sobre azul oscuro, con título amarillo. */
+  .m-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; background: linear-gradient(170deg, #003a70, var(--azul-950)); color: #fff; container: modulo / size; }
+  .m-titulo { flex: none; display: flex; align-items: center; gap: 10px; padding: clamp(8px, 3cqh, 18px) clamp(14px, 4cqw, 28px);
+    background: var(--ambar-400); color: var(--azul-950); font-weight: 900; text-transform: uppercase; letter-spacing: .05em; font-size: clamp(15px, 5.5cqh, 26px); }
+  .m-cuerpo { flex: 1; min-height: 0; overflow: hidden; position: relative; padding: clamp(10px, 3cqh, 22px) clamp(14px, 4cqw, 28px); }
+  .m-nada { color: var(--azul-100); font-size: clamp(15px, 5cqh, 24px); text-align: center; margin-top: 4cqh; }
+  /* Cortes: lista que sube sola si no entra. */
+  .m-lista { display: flex; flex-direction: column; gap: clamp(8px, 2.5cqh, 16px); }
+  .m-lista.corre { animation: subir linear infinite; }
+  @keyframes subir { from { transform: translateY(0); } to { transform: translateY(-50%); } }
+  .corte { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.16); border-left: 6px solid var(--ambar-400);
+    border-radius: 12px; padding: clamp(8px, 2.6cqh, 16px) clamp(12px, 3cqw, 20px); font-size: clamp(15px, 4.6cqh, 24px); line-height: 1.3; }
+  .corte b { display: inline-block; color: var(--azul-950); background: var(--ambar-400); border-radius: 6px; padding: 1px 10px; margin-bottom: 4px; font-size: .8em; text-transform: uppercase; }
+  .corte.emergencia { border-left-color: #ef4444; }
+  .corte.emergencia b { background: #b91c1c; color: #fff; }
+  .corte.restablecido { border-left-color: var(--verde-700); }
+  .corte.restablecido b { background: var(--verde-700); color: #fff; }
+  .corte .cuando { display: block; font-weight: 800; color: #fff; }
+  .corte .donde { display: block; color: var(--azul-100); }
+  /* Preguntas: una por vez, se van turnando; la respuesta larga sube sola. */
+  .faq { position: absolute; inset: clamp(10px, 3cqh, 22px) clamp(14px, 4cqw, 28px); display: flex; flex-direction: column; gap: 2cqh;
+    opacity: 0; transition: opacity .8s ease; }
+  .faq.activa { opacity: 1; }
+  .faq h4 { margin: 0; flex: none; font-size: clamp(18px, 6cqh, 34px); line-height: 1.2; color: var(--ambar-400); font-weight: 800; }
+  .faq-resp { flex: 1; min-height: 0; overflow: hidden; position: relative;
+    -webkit-mask-image: linear-gradient(#000 85%, transparent); mask-image: linear-gradient(#000 85%, transparent); }
+  .faq-resp div { font-size: clamp(15px, 4.4cqh, 24px); line-height: 1.45; color: #fff; white-space: pre-line; }
+  .faq-resp div.corre { animation: subirRespuesta linear forwards; }
+  @keyframes subirRespuesta { 0%, 15% { transform: translateY(0); } 100% { transform: translateY(var(--hasta)); } }
+  .faq-puntos { flex: none; display: flex; justify-content: center; gap: 6px; padding: 0 0 clamp(6px, 2cqh, 12px); }
+  .faq-puntos span { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,.3); }
+  .faq-puntos span.activo { background: var(--ambar-400); }
+  .m-pie { flex: none; text-align: center; font-size: clamp(12px, 3.4cqh, 17px); color: var(--azul-100); padding: 0 12px clamp(6px, 2cqh, 12px); }
+  @media (prefers-reduced-motion: reduce) { .m-lista.corre, .faq-resp div.corre { animation: none; } }
 </style>
 </head>
 <body>
+<div id="disposicion" hidden></div>
+<div id="cajero">
 <div class="fondo" aria-hidden="true">
   <div id="fondo-fotos"></div>
   <span class="mancha m1"></span><span class="mancha m2"></span><span class="mancha m3"></span><span class="mancha m4"></span>
@@ -385,17 +478,19 @@
       </div>
       <div class="meses" id="d-meses"></div>
     </div>
-    <p class="ayuda" id="d-ayuda">Toca hasta qué mes quieres pagar (siempre desde el más antiguo). Para quitar un mes, toca el último marcado.</p>
-    <div class="avisos-pago" id="d-avisos"></div>
-    <div class="resumen" id="d-resumen">
-      <div class="total" id="d-total"></div>
-      <div class="acciones">
-        <button class="secundario" data-accion="inicio">Volver</button>
-        <button class="primario" id="btn-qr">Pagar con QR</button>
+    <div class="d-lado">
+      <p class="ayuda" id="d-ayuda">Toca hasta qué mes quieres pagar (siempre desde el más antiguo). Para quitar un mes, toca el último marcado.</p>
+      <div class="avisos-pago" id="d-avisos"></div>
+      <div class="resumen" id="d-resumen">
+        <div class="total" id="d-total"></div>
+        <div class="acciones">
+          <button class="secundario" data-accion="inicio">Volver</button>
+          <button class="primario" id="btn-qr">Pagar con QR</button>
+        </div>
       </div>
+      <p class="nota-antiguo" id="d-nota">ⓘ Siempre se paga primero el mes más antiguo: no se puede saltar meses.</p>
+      <button class="oscuro" data-accion="inicio" id="d-volver-solo">Volver</button>
     </div>
-    <p class="nota-antiguo" id="d-nota">ⓘ Siempre se paga primero el mes más antiguo: no se puede saltar meses.</p>
-    <button class="oscuro" data-accion="inicio" id="d-volver-solo">Volver</button>
   </section>
 
   <section class="pantalla" id="p-qr">
@@ -432,6 +527,7 @@
 </main>
 
 <footer>Compañía Eléctrica Sucre S.A. · NIT 1000831029</footer>
+</div><!-- /cajero -->
 <div id="aviso" role="alert"></div>
 <!-- Pantalla técnica del personal: 5 toques seguidos en el encabezado + PIN (KIOSCO_PIN_TECNICO). -->
 <div id="tecnico" aria-hidden="true">
@@ -571,6 +667,8 @@
     estado = estadoInicial();
     pintarNumero();
     mostrar(salud.estado === "rojo" ? "p-fuera" : "p-inicio");
+    // Un diseño nuevo que llegó en medio de un pago se aplica ahora.
+    if (contenidoPendiente) setTimeout(aplicarContenido, 0);
   }
 
   function reiniciarInactividad() {
@@ -954,6 +1052,8 @@
   }
 
   function pintarAvisos(lista) {
+    avisosActuales = lista;
+    pintarCortes();
     var barra = $("avisos"), cinta = $("avisos-cinta");
     cinta.innerHTML = "";
     barra.classList.toggle("visible", lista.length > 0);
@@ -1274,6 +1374,273 @@
     setTimeout(function () { boton.textContent = "Imprimir ticket de prueba"; }, 4000);
   });
 
+  // ---------------------------------------------------------------- diseño de la pantalla
+  // Admin > Diseños de pantalla: franjas de arriba a abajo con el cajero, videos, cortes y
+  // preguntas frecuentes. Se pregunta cada minuto; si cambió, se arma de nuevo al volver al
+  // inicio (nunca en medio de un pago). Sin diseño, el cajero va a pantalla completa.
+  var CONTENIDO_MS = 60000;
+  var CACHE_VIDEOS = "kiosco-videos";
+  var contenido = { version: "", diseno: null, videos: [], preguntas: [] };
+  var contenidoPendiente = null;
+  var avisosActuales = [];
+  var urlsVideos = {};
+  var detenedores = [];
+  var cuerpoCortes = null;
+
+  function enMedioDeUnPago() {
+    var activa = document.querySelector(".pantalla.activa");
+    if (!activa) return false;
+    return ["p-deuda", "p-qr", "p-resultado"].indexOf(activa.id) !== -1 || (activa.id === "p-inicio" && !!estado.numero);
+  }
+
+  function cargarContenido() {
+    api("GET", "/contenido/").then(function (datos) {
+      if (!datos || datos.version === contenido.version) return;
+      contenidoPendiente = datos;
+      if (!enMedioDeUnPago()) aplicarContenido();
+    }, function () { /* sin red: se queda como está */ });
+  }
+
+  function aplicarContenido() {
+    if (!contenidoPendiente) return;
+    contenido = contenidoPendiente;
+    contenidoPendiente = null;
+    armarDiseno(contenido.diseno);
+    limpiarVideosViejos();
+  }
+
+  function detenerModulos() {
+    detenedores.forEach(function (detener) { try { detener(); } catch (e) { /* nada */ } });
+    detenedores = [];
+    cuerpoCortes = null;
+  }
+
+  function armarDiseno(diseno) {
+    var caja = $("disposicion"), cajero = $("cajero");
+    detenerModulos();
+    document.body.insertBefore(cajero, caja.nextSibling);  // se saca antes de vaciar la caja
+    caja.innerHTML = "";
+    var franjas = (diseno && diseno.franjas) || [];
+    var conCajero = franjas.some(function (f) { return f.celdas.some(function (c) { return c.modulo === "cajero"; }); });
+    if (!franjas.length || !conCajero) {
+      caja.hidden = true;
+      document.body.classList.remove("con-cortes");
+      return;
+    }
+    var hayCortes = false;
+    franjas.forEach(function (f) {
+      var fila = document.createElement("div");
+      fila.className = "fila-d";
+      fila.style.flexGrow = Math.max(Number(f.alto) || 1, 1);
+      f.celdas.forEach(function (c) {
+        var celda = document.createElement("div");
+        celda.className = "celda-d";
+        celda.style.flexGrow = Math.max(Number(c.ancho) || 1, 1);
+        if (c.modulo === "cajero") celda.appendChild(cajero);
+        else if (c.modulo === "video") celda.appendChild(crearVideo());
+        else if (c.modulo === "cortes") { celda.appendChild(crearCortes()); hayCortes = true; }
+        else if (c.modulo === "preguntas") celda.appendChild(crearPreguntas());
+        fila.appendChild(celda);
+      });
+      caja.appendChild(fila);
+    });
+    caja.hidden = false;
+    document.body.classList.toggle("con-cortes", hayCortes);
+  }
+
+  function panelModulo(titulo) {
+    var caja = document.createElement("div");
+    caja.className = "m-panel";
+    caja.innerHTML = '<div class="m-titulo"></div><div class="m-cuerpo"></div>';
+    caja.querySelector(".m-titulo").textContent = titulo;
+    return caja;
+  }
+
+  function logoCessa() {
+    var img = document.querySelector("header img");
+    return img ? img.src : "";
+  }
+
+  // --- videos: se bajan con el token y se guardan en la caché del navegador (no se vuelven a bajar)
+  function urlVideo(v) {
+    var clave = API + "/videos/" + v.id + "/?v=" + v.version;
+    if (urlsVideos[clave]) return Promise.resolve(urlsVideos[clave]);
+    var guardado = window.caches
+      ? caches.open(CACHE_VIDEOS).then(function (c) { return c.match(clave); }).catch(function () { return null; })
+      : Promise.resolve(null);
+    return guardado.then(function (r) {
+      if (r) return r.blob();
+      return fetch(API + "/videos/" + v.id + "/", { headers: { "X-Kiosco-Token": token } }).then(function (resp) {
+        if (!resp.ok) return null;
+        if (window.caches) {
+          var copia = resp.clone();
+          caches.open(CACHE_VIDEOS).then(function (c) { return c.put(clave, copia); }).catch(function () {});
+        }
+        return resp.blob();
+      });
+    }).then(function (blob) {
+      if (!blob || !blob.size) return null;
+      urlsVideos[clave] = URL.createObjectURL(blob);
+      return urlsVideos[clave];
+    }, function () { return null; });
+  }
+
+  function limpiarVideosViejos() {
+    var vigentes = (contenido.videos || []).map(function (v) { return API + "/videos/" + v.id + "/?v=" + v.version; });
+    Object.keys(urlsVideos).forEach(function (clave) {
+      if (vigentes.indexOf(clave) === -1) { URL.revokeObjectURL(urlsVideos[clave]); delete urlsVideos[clave]; }
+    });
+    if (!window.caches) return;
+    caches.open(CACHE_VIDEOS).then(function (c) {
+      return c.keys().then(function (claves) {
+        claves.forEach(function (req) { if (vigentes.indexOf(req.url) === -1 && vigentes.indexOf(new URL(req.url).pathname + new URL(req.url).search) === -1) c.delete(req); });
+      });
+    }).catch(function () {});
+  }
+
+  function crearVideo() {
+    var caja = document.createElement("div");
+    caja.className = "m-video";
+    var vacio = document.createElement("div");
+    vacio.className = "m-vacio";
+    var logo = logoCessa();
+    vacio.innerHTML = (logo ? '<img alt="CESSA" src="' + logo + '">' : "") + "<div>Compañía Eléctrica Sucre S.A.</div>";
+    var video = document.createElement("video");
+    video.playsInline = true;
+    video.preload = "auto";
+    video.hidden = true;
+    caja.appendChild(vacio);
+    caja.appendChild(video);
+    var lista = (contenido.videos || []).slice(), i = -1, vivo = true, espera = null;
+
+    function siguiente() {
+      clearTimeout(espera);
+      if (!vivo || !lista.length) return;
+      i = (i + 1) % lista.length;
+      var v = lista[i];
+      urlVideo(v).then(function (url) {
+        if (!vivo) return;
+        if (!url) { espera = setTimeout(siguiente, 5000); return; }
+        video.muted = !v.con_sonido;
+        if (video.src !== url) video.src = url; else video.currentTime = 0;
+        var promesa = video.play();
+        if (promesa && promesa.catch) {
+          promesa.then(function () { video.hidden = false; vacio.hidden = true; }, function () {
+            // Sin permiso para sonar solo: en silencio sí se puede.
+            video.muted = true;
+            video.play().then(function () { video.hidden = false; vacio.hidden = true; },
+              function () { espera = setTimeout(siguiente, 5000); });
+          });
+        }
+      });
+    }
+    video.addEventListener("ended", siguiente);
+    video.addEventListener("error", function () { espera = setTimeout(siguiente, 3000); });
+    siguiente();
+    detenedores.push(function () {
+      vivo = false;
+      clearTimeout(espera);
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+    });
+    return caja;
+  }
+
+  // --- cortes: tarjetas con los mismos avisos de la cinta; si no entran, suben solas
+  function crearCortes() {
+    var caja = panelModulo("⚡ Cortes de energía");
+    cuerpoCortes = caja.querySelector(".m-cuerpo");
+    requestAnimationFrame(pintarCortes);
+    return caja;
+  }
+
+  function pintarCortes() {
+    var cuerpo = cuerpoCortes;
+    if (!cuerpo) return;
+    cuerpo.innerHTML = "";
+    if (!avisosActuales.length) {
+      cuerpo.innerHTML = '<div class="m-nada">No hay cortes programados.<br><br>Emergencias: línea gratuita <b>176</b></div>';
+      return;
+    }
+    var lista = document.createElement("div");
+    lista.className = "m-lista";
+    function agregar() {
+      avisosActuales.forEach(function (a) {
+        var tarjeta = document.createElement("div");
+        tarjeta.className = "corte" + (a.tipo === "emergencia" ? (a.restablecido ? " restablecido" : " emergencia") : "");
+        var b = document.createElement("b");
+        b.textContent = a.tipo === "emergencia" ? (a.restablecido ? "Servicio restablecido" : "Corte de emergencia") : "Corte programado";
+        var texto = document.createElement("span");
+        texto.className = "donde";
+        texto.textContent = textoAviso(a);
+        tarjeta.appendChild(b);
+        tarjeta.appendChild(texto);
+        lista.appendChild(tarjeta);
+      });
+    }
+    agregar();
+    cuerpo.appendChild(lista);
+    requestAnimationFrame(function () {
+      if (lista.scrollHeight <= cuerpo.clientHeight) return;
+      agregar();  // dos copias: la animación sube la mitad y vuelve a empezar sin salto
+      lista.classList.add("corre");
+      lista.style.animationDuration = Math.max(25, lista.scrollHeight / 2 / 25) + "s";
+    });
+  }
+
+  // --- preguntas frecuentes: una por vez; si la respuesta es larga, sube despacio
+  function crearPreguntas() {
+    var caja = panelModulo("❓ Preguntas frecuentes");
+    var cuerpo = caja.querySelector(".m-cuerpo");
+    var lista = contenido.preguntas || [];
+    if (!lista.length) {
+      cuerpo.innerHTML = '<div class="m-nada">Más información en <b>www.cessa.com.bo</b></div>';
+      return caja;
+    }
+    var tarjetas = lista.map(function (p) {
+      var t = document.createElement("div");
+      t.className = "faq";
+      t.innerHTML = '<h4></h4><div class="faq-resp"><div></div></div>';
+      t.querySelector("h4").textContent = p.pregunta;
+      t.querySelector(".faq-resp div").textContent = p.respuesta;
+      cuerpo.appendChild(t);
+      return t;
+    });
+    var puntos = document.createElement("div");
+    puntos.className = "faq-puntos";
+    if (lista.length <= 30) lista.forEach(function () { puntos.appendChild(document.createElement("span")); });
+    var pie = document.createElement("div");
+    pie.className = "m-pie";
+    pie.textContent = "Más en www.cessa.com.bo";
+    caja.appendChild(puntos);
+    caja.appendChild(pie);
+
+    var i = -1, espera = null;
+    function siguiente() {
+      i = (i + 1) % tarjetas.length;
+      tarjetas.forEach(function (t, j) { t.classList.toggle("activa", j === i); });
+      Array.prototype.forEach.call(puntos.children, function (s, j) { s.classList.toggle("activo", j === i); });
+      var resp = tarjetas[i].querySelector(".faq-resp"), texto = resp.firstChild;
+      var duracion = Math.min(45000, 9000 + lista[i].respuesta.length * 30);
+      texto.classList.remove("corre");
+      texto.style.removeProperty("--hasta");
+      requestAnimationFrame(function () {
+        var sobra = texto.scrollHeight - resp.clientHeight;
+        if (sobra > 0) {
+          texto.style.setProperty("--hasta", -(sobra + 24) + "px");
+          texto.style.animationDuration = Math.round(duracion * 0.9) + "ms";
+          void texto.offsetWidth;  // reinicia la animación
+          texto.classList.add("corre");
+        }
+      });
+      espera = setTimeout(siguiente, duracion);
+    }
+    siguiente();
+    detenedores.push(function () { clearTimeout(espera); });
+    return caja;
+  }
+
   // ---------------------------------------------------------------- arranque
   if (!token) {
     mostrar("p-sin-configurar");
@@ -1281,6 +1648,8 @@
     pintarNumero();
     arrancar();
     setInterval(consultarEstado, ESTADO_MS);
+    cargarContenido();
+    setInterval(cargarContenido, CONTENIDO_MS);
     cargarAvisos();
     setInterval(cargarAvisos, AVISOS_MS);
     cargarGaleria();

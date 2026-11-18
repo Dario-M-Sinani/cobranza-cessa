@@ -5,6 +5,7 @@ from .views import (
     CancelarQrView,
     ClienteView,
     ComprobanteView,
+    ContenidoView,
     EnviarCorreoView,
     EnviarWhatsappView,
     EstadoQrView,
@@ -15,6 +16,7 @@ from .views import (
     GenerarQrView,
     ReciboView,
     TecnicoView,
+    VideoView,
 )
 
 # Bajo /api/kiosco/ y NO bajo /api/externo/: test01 publica /prod/api/externo/ a internet.
@@ -22,6 +24,8 @@ urlpatterns = [
     path("estado/", EstadoView.as_view(), name="kiosco-estado"),
     path("tecnico/", TecnicoView.as_view(), name="kiosco-tecnico"),
     path("avisos/", AvisosView.as_view(), name="kiosco-avisos"),
+    path("contenido/", ContenidoView.as_view(), name="kiosco-contenido"),
+    path("videos/<int:id_video>/", VideoView.as_view(), name="kiosco-video"),
     path("galeria/", GaleriaView.as_view(), name="kiosco-galeria"),
     path("galeria/<int:id_foto>/", FotoView.as_view(), name="kiosco-foto"),
     path("clientes/<str:nro_cliente>/", ClienteView.as_view(), name="kiosco-cliente"),

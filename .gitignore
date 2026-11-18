@@ -16,3 +16,6 @@ venv/
 # Desarrollo local (local/docker-compose.yml)
 local/.siic_simulado.json
 celerybeat-schedule*
+
+# Videos y archivos subidos desde el admin (MEDIA_ROOT)
+/media/

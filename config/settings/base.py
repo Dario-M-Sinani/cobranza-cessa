@@ -105,6 +105,9 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+# Archivos subidos desde el admin (videos del kiosco). No se publican por nginx: los entrega
+# /api/kiosco/videos/<id>/ solo a las pantallas con token.
+MEDIA_ROOT = env("MEDIA_ROOT", default=str(BASE_DIR / "media"))
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -277,6 +280,9 @@ KIOSCO_CORTES_API_TOKEN = env("KIOSCO_CORTES_API_TOKEN", default="")
 KIOSCO_CORTES_API_VERIFY = env("KIOSCO_CORTES_API_VERIFY", default="true")
 KIOSCO_AVISOS_URL = env("KIOSCO_AVISOS_URL", default="https://cessa.com.bo/")
 KIOSCO_AVISOS_MINUTOS = env.int("KIOSCO_AVISOS_MINUTOS", default=10)
+# Preguntas frecuentes del cuadro "preguntas": las mismas del asistente de la web (Filament, Faq).
+KIOSCO_PREGUNTAS_URL = env("KIOSCO_PREGUNTAS_URL", default="https://www.cessa.com.bo/api/asistente/faqs")
+KIOSCO_PREGUNTAS_MINUTOS = env.int("KIOSCO_PREGUNTAS_MINUTOS", default=30)
 # Fotos del carrusel de la web (protector de pantalla y fondo): cada cuánto se relee la lista.
 KIOSCO_GALERIA_MINUTOS = env.int("KIOSCO_GALERIA_MINUTOS", default=60)
 # Correo y celular registrados en "Actualizar Datos" de cessa-laravel, para mandar la factura
