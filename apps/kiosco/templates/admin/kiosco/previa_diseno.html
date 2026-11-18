@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vista previa · {{ diseno.nombre }}</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1f2937; color: #fff; font-family: "Segoe UI", system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; }
+  .barra { display: flex; gap: 8px; align-items: center; padding: 10px 14px; background: #111827; flex-wrap: wrap; }
+  .barra h1 { margin: 0 auto 0 0; font-size: 16px; font-weight: 700; }
+  .barra button { font: inherit; font-size: 14px; border: 1px solid #4b5563; background: #374151; color: #fff; border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  .barra button.activo { background: #ffe71e; border-color: #ffe71e; color: #00335f; font-weight: 700; }
+  .nota { font-size: 13px; line-height: 1.4; color: #cbd5e1; padding: 0 14px 10px; background: #111827; }
+  .escenario { flex: 1; position: relative; overflow: hidden; }
+  .marco { position: absolute; left: 50%; top: 50%; border: 16px solid #000; border-radius: 26px; background: #000;
+    box-shadow: 0 20px 60px rgba(0,0,0,.6); transform-origin: center center; }
+  iframe { display: block; border: 0; background: #00335f; }
+</style>
+</head>
+<body>
+<div class="barra">
+  <h1>{{ diseno.nombre }}</h1>
+  <button type="button" data-o="vertical" class="activo">Tótem vertical</button>
+  <button type="button" data-o="horizontal">Pantalla horizontal</button>
+  <button type="button" id="reiniciar">↻ Empezar de nuevo</button>
+</div>
+<div class="nota">
+  Así se verá la pantalla ({{ ancho }} × {{ alto }}). Si cambias el diseño en el admin y guardas, esta ventana se
+  actualiza sola en unos segundos. Es solo para mirar: aquí no se consultan deudas ni se cobra.
+</div>
+<div class="escenario" id="escenario">
+  <div class="marco" id="marco"><iframe id="pantalla" title="Vista previa del kiosco" src="{{ url_pantalla }}"></iframe></div>
+</div>
+<script>
+(function () {
+  var TAMANOS = { vertical: [1080, 1920], horizontal: [1920, 1080] };
+  var orientacion = "vertical";
+  var escenario = document.getElementById("escenario"), marco = document.getElementById("marco"), pantalla = document.getElementById("pantalla");
+  function ajustar() {
+    var t = TAMANOS[orientacion];
+    pantalla.style.width = t[0] + "px";
+    pantalla.style.height = t[1] + "px";
+    var escala = Math.min((escenario.clientWidth - 30) / (t[0] + 32), (escenario.clientHeight - 30) / (t[1] + 32));
+    marco.style.transform = "translate(-50%, -50%) scale(" + Math.max(escala, 0.05) + ")";
+  }
+  document.querySelectorAll("[data-o]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      orientacion = b.getAttribute("data-o");
+      document.querySelectorAll("[data-o]").forEach(function (x) { x.classList.toggle("activo", x === b); });
+      ajustar();
+    });
+  });
+  document.getElementById("reiniciar").addEventListener("click", function () { pantalla.src = pantalla.src; });
+  window.addEventListener("resize", ajustar);
+  ajustar();
+})();
+</script>
+</body>
+</html>

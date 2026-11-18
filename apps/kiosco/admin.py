@@ -1,5 +1,10 @@
+import os
+
 from django import forms
+from django.conf import settings
 from django.contrib import admin
+from django.shortcuts import get_object_or_404, render
+from django.urls import path, reverse
 from django.utils.html import format_html, format_html_join
 
 from .models import DisenoKiosco, EnvioFactura, FranjaDiseno, Modulo, PagoKiosco, PantallaKiosco, VideoKiosco
@@ -21,13 +26,15 @@ def vista_previa(diseno: dict | None, alto_px: int = 320) -> str:
     total = sum(max(f["alto"], 1) for f in franjas) or 1
     filas = []
     for f in franjas:
+        porcentaje = round(max(f["alto"], 1) * 100 / total)
         celdas = format_html_join(
-            "", '<div style="flex:{} 1 0;background:{};color:{};display:flex;align-items:center;justify-content:center;'
-                'text-align:center;font:600 11px sans-serif;border:1px solid #fff;padding:2px">{}</div>',
-            ((c["ancho"], *COLORES.get(c["modulo"], ("#999", "#fff")), Modulo(c["modulo"]).label.split(" (")[0])
+            "", '<div style="flex:{} 1 0;background:{};color:{};display:flex;flex-direction:column;align-items:center;'
+                'justify-content:center;text-align:center;font:600 11px sans-serif;border:1px solid #fff;padding:2px;'
+                'overflow:hidden">{}<small style="font-weight:400;opacity:.8">{} %</small></div>',
+            ((c["ancho"], *COLORES.get(c["modulo"], ("#999", "#fff")), Modulo(c["modulo"]).label.split(" (")[0], porcentaje)
              for c in f["celdas"]),
         )
-        filas.append(format_html('<div style="display:flex;height:{}%">{}</div>', round(max(f["alto"], 1) * 100 / total, 2), celdas))
+        filas.append(format_html('<div style="display:flex;height:{}%">{}</div>', porcentaje, celdas))
     return format_html(
         '<div style="width:{}px;height:{}px;border:3px solid #333;border-radius:8px;overflow:hidden;background:#333">{}</div>',
         round(alto_px * 9 / 16), alto_px, format_html_join("", "{}", ((f,) for f in filas)),
@@ -58,40 +65,154 @@ class FranjasFormSet(forms.BaseInlineFormSet):
             raise forms.ValidationError("Cada cuadro va una sola vez: " + ", ".join(Modulo(m).label for m in repetidos))
 
 
+class FranjaForm(forms.ModelForm):
+    class Meta:
+        model = FranjaDiseno
+        fields = ("orden", "modulo", "alto", "modulo_2", "ancho")
+        labels = {
+            "orden": "Posición",
+            "modulo": "Qué muestra",
+            "alto": "Alto (%)",
+            "modulo_2": "Al lado, otro cuadro (opcional)",
+            "ancho": "Ancho del primero (%)",
+        }
+        help_texts = {
+            "orden": "1 = arriba del todo",
+            "modulo": "",
+            "alto": "Parte de la pantalla que ocupa",
+            "modulo_2": "Parte la franja en dos columnas",
+            "ancho": "Solo si hay otro cuadro al lado (el otro usa el resto)",
+        }
+        widgets = {
+            "orden": forms.NumberInput(attrs={"style": "width:4em"}),
+            "alto": forms.NumberInput(attrs={"style": "width:5em"}),
+            "ancho": forms.NumberInput(attrs={"style": "width:5em"}),
+        }
+
+
 class FranjaInline(admin.TabularInline):
     model = FranjaDiseno
+    form = FranjaForm
     formset = FranjasFormSet
     extra = 0
-    fields = ("orden", "alto", "modulo", "modulo_2", "ancho")
+    verbose_name = "franja"
+    verbose_name_plural = "Franjas de la pantalla (de arriba a abajo)"
+
+
+def boton_previa(diseno) -> str:
+    url = reverse("admin:kiosco_disenokiosco_previa", args=[diseno.pk])
+    return format_html(
+        '<a href="{}" target="kiosco-previa" class="button" style="padding:8px 14px;font-weight:700" '
+        'onclick="window.open(this.href, \'kiosco-previa\', \'width=620,height=1000\'); return false;">'
+        "▶ Ver cómo se verá</a>", url,
+    )
 
 
 @admin.register(DisenoKiosco)
 class DisenoKioscoAdmin(admin.ModelAdmin):
-    list_display = ("nombre", "previa_chica", "pantallas_que_lo_usan", "modificado_en")
-    readonly_fields = ("previa",)
-    fields = ("nombre", "previa")
+    list_display = ("nombre", "previa_chica", "pantallas_que_lo_usan", "ver", "modificado_en")
+    readonly_fields = ("previa", "pantallas_que_lo_usan")
+    fieldsets = [
+        (None, {
+            "fields": ("nombre", "previa", "pantallas_que_lo_usan"),
+            "description": (
+                "Un diseño dice cómo se reparte la pantalla del tótem: franjas de arriba a abajo. En cada franja "
+                "se elige qué se muestra (el cajero, los videos, los cortes de energía o las preguntas "
+                "frecuentes) y qué alto tiene. Una franja se puede partir en dos cuadros, uno al lado del otro. "
+                "El cajero va siempre, una sola vez. Después de guardar, elige el diseño en "
+                "<b>Kiosco › Pantalla kioscos</b> para cada tótem."
+            ),
+        }),
+    ]
     inlines = [FranjaInline]
 
-    @admin.display(description="Vista previa (tótem vertical)")
+    def get_urls(self):
+        propias = [path("<int:pk>/previa/", self.admin_site.admin_view(self.ventana_previa), name="kiosco_disenokiosco_previa")]
+        return propias + super().get_urls()
+
+    def ventana_previa(self, request, pk):
+        diseno = get_object_or_404(DisenoKiosco, pk=pk)
+        return render(request, "admin/kiosco/previa_diseno.html", {
+            "diseno": diseno, "ancho": 1080, "alto": 1920,
+            "url_pantalla": reverse("kiosco-pantalla") + f"?previa={diseno.pk}&impresion=ninguna",
+        })
+
+    @admin.display(description="Vista previa")
     def previa(self, obj):
         if not obj.pk:
-            return "Se ve al guardar."
-        return format_html("{}<p style='margin-top:8px;color:#666'>Se aplica en las pantallas al minuto, "
-                           "cuando vuelven al inicio (nunca en medio de un pago).</p>", vista_previa(obj.para_pantalla()))
+            return "Se ve después de guardar."
+        return format_html(
+            '<div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap">{}<div style="max-width:340px">'
+            "<p style='margin-top:0'>{}</p><p style='color:#666'>Los cambios llegan a los tótems en un minuto, cuando "
+            "vuelven a la pantalla de inicio (nunca en medio de un pago). Los cambios sin guardar no se ven.</p></div></div>",
+            vista_previa(obj.para_pantalla()), boton_previa(obj),
+        )
 
     @admin.display(description="Vista")
     def previa_chica(self, obj):
         return vista_previa(obj.para_pantalla(), 120)
 
-    @admin.display(description="Pantallas")
+    @admin.display(description="")
+    def ver(self, obj):
+        return boton_previa(obj)
+
+    @admin.display(description="Lo usan los tótems")
     def pantallas_que_lo_usan(self, obj):
-        return ", ".join(obj.pantallas.values_list("nombre", flat=True)) or "—"
+        if not obj or not obj.pk:
+            return "—"
+        return ", ".join(obj.pantallas.values_list("nombre", flat=True)) or "Ninguno todavía"
+
+
+class VideoForm(forms.ModelForm):
+    class Meta:
+        model = VideoKiosco
+        fields = ("titulo", "archivo", "orden", "activo", "con_sonido")
+        labels = {"titulo": "Nombre del spot", "archivo": "Archivo de video", "orden": "Orden en que pasa",
+                  "activo": "Se muestra en los tótems", "con_sonido": "Con sonido"}
+        help_texts = {"orden": "1 = el primero. Pasan uno tras otro y vuelven a empezar.",
+                      "archivo": "MP4 (H.264) o WebM, hasta 300 MB. Mejor horizontal 16:9.",
+                      "con_sonido": "Si no se marca, el video pasa en silencio."}
+        # Sin el enlace "Actualmente: ..." (los videos no tienen URL pública; se ven abajo en "Ver").
+        widgets = {"archivo": forms.FileInput(attrs={"accept": "video/mp4,video/webm"})}
 
 
 @admin.register(VideoKiosco)
 class VideoKioscoAdmin(admin.ModelAdmin):
-    list_display = ("titulo", "orden", "activo", "con_sonido", "subido_en")
+    form = VideoForm
+    list_display = ("titulo", "orden", "activo", "con_sonido", "peso", "subido_en")
     list_editable = ("orden", "activo", "con_sonido")
+    readonly_fields = ("donde_se_guarda", "ver_video")
+    fieldsets = [
+        (None, {
+            "fields": ("titulo", "archivo", "orden", "activo", "con_sonido"),
+            "description": (
+                "Los spots del cuadro de videos. Se suben aquí y se guardan en el servidor del gateway; los tótems "
+                "los bajan una vez por la red interna y los guardan, así no dependen de internet."
+            ),
+        }),
+        ("Archivo", {"fields": ("donde_se_guarda", "ver_video")}),
+    ]
+
+    @admin.display(description="Peso")
+    def peso(self, obj):
+        try:
+            return f"{obj.archivo.size / 1048576:.1f} MB"
+        except (OSError, ValueError):
+            return "—"
+
+    @admin.display(description="Dónde se guarda")
+    def donde_se_guarda(self, obj):
+        carpeta = os.path.join(settings.MEDIA_ROOT, "kiosco", "videos")
+        if obj and obj.pk and obj.archivo:
+            return format_html("<code>{}</code> ({})", os.path.join(settings.MEDIA_ROOT, obj.archivo.name), self.peso(obj))
+        return format_html("Al guardar, en <code>{}</code> del servidor.", carpeta)
+
+    @admin.display(description="Ver")
+    def ver_video(self, obj):
+        if not obj or not obj.pk or not obj.activo:
+            return "Se puede ver cuando está guardado y activo."
+        return format_html('<video src="{}" controls muted style="max-width:480px;width:100%;background:#000"></video>',
+                           reverse("kiosco-video", args=[obj.pk]))
 
 
 @admin.register(PantallaKiosco)
@@ -103,7 +224,9 @@ class PantallaKioscoAdmin(admin.ModelAdmin):
 
     @admin.display(description="Vista previa")
     def previa(self, obj):
-        return vista_previa(obj.diseno.para_pantalla() if obj.diseno else None)
+        if not obj.diseno:
+            return format_html("{}<p>Sin diseño: el cajero ocupa toda la pantalla.</p>", vista_previa(None))
+        return format_html("{}<p>{}</p>", vista_previa(obj.diseno.para_pantalla()), boton_previa(obj.diseno))
 
     def has_add_permission(self, request):
         return False
