@@ -55,6 +55,14 @@ def _guardar_estado(estado: dict) -> None:
 ESTADO = _cargar_estado()
 
 
+def _cotiza(fecha: str) -> str | None:
+    """COTIZA simulada: lo cargado por POST /v1/cajas/cotizacion; si no, SIIC_COTIZACION ("" = sin cargar)."""
+    if fecha in ESTADO.get("cotiza", {}):
+        return ESTADO["cotiza"][fecha]
+    valor = os.environ.get("SIIC_COTIZACION", "11.67").strip()
+    return f"{Decimal(valor):.4f}" if valor else None
+
+
 def _meses_atras(hoy: date, n: int) -> tuple[int, int]:
     total = hoy.year * 12 + (hoy.month - 1) - n
     return total // 12, total % 12 + 1
@@ -323,6 +331,9 @@ class Manejador(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/v1/clientes/(\w+)/facturas", url.path)
         if m:
             return self._json(200, _facturas(m.group(1), q.get("estado", "pendientes")))
+        if url.path == "/v1/cajas/cotizacion":
+            fecha = q.get("fecha") or f"{datetime.now():%Y%m%d}"
+            return self._json(200, {"fecha": fecha, "cotizacion": _cotiza(fecha)})
         if url.path == "/_simulador/clientes":
             return self._json(200, EJEMPLOS)
         m = re.fullmatch(r"/_simulador/transacciones/([\w-]+)(/pdf)?", url.path)
@@ -354,6 +365,21 @@ class Manejador(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(pdf)
             return
+        if url.path == "/v1/cajas/cotizacion":
+            # Como la API SIIC de test con COTIZA_ESCRITURA=on y COTIZA_BIBLIOTECA=RESTAURA: solo si el día no tiene.
+            cuerpo = self._cuerpo()
+            fecha, valor = str(cuerpo.get("fecha") or ""), str(cuerpo.get("cotizacion") or "")
+            if not re.fullmatch(r"\d{8}", fecha) or not re.fullmatch(r"\d{1,6}(\.\d{1,4})?", valor):
+                return self._json(422, {"error": {"cotizacion": ["fecha o cotizacion inválida"]}, "code": 422})
+            with _candado:
+                actual = _cotiza(fecha)
+                if actual is None:
+                    ESTADO.setdefault("cotiza", {})[fecha] = f"{Decimal(valor):.4f}"
+                    _guardar_estado(ESTADO)
+                    return self._json(200, {"fecha": fecha, "cotizacion": ESTADO["cotiza"][fecha], "insertada": True, "tabla": "RESTAURA.COTIZA"})
+            if abs(Decimal(actual) - Decimal(valor)) >= Decimal("0.00005"):
+                return self._json(409, {"error": f"El {fecha} ya tiene cotización cargada ({actual}); no se reemplaza", "code": 409})
+            return self._json(200, {"fecha": fecha, "cotizacion": actual, "insertada": False, "tabla": "RESTAURA.COTIZA"})
         if url.path == "/_simulador/pagar":
             cuerpo = self._cuerpo()
             return self._json(200, {"pagados": _marcar_pagados(cuerpo.get("items") or [], str(cuerpo.get("uuid") or ""))})
@@ -363,6 +389,7 @@ class Manejador(BaseHTTPRequestHandler):
                 ESTADO["transacciones"] = {}
                 ESTADO["nest_cajas"] = {}
                 ESTADO["nest_transacciones"] = {}
+                ESTADO["cotiza"] = {}
                 _guardar_estado(ESTADO)
             return self._json(200, {"ok": True})
         self._json(404, {"error": "ruta no simulada", "ruta": url.path})
@@ -568,10 +595,9 @@ class ManejadorCobranzas(Manejador):
         if url.path in ("/v1/entes", "/v1/bancos"):
             return self._json(200, [{"id": k, "descripcion": v} for k, v in (ENTES if url.path == "/v1/entes" else BANCOS).items()])
         if url.path == "/v1/cotizacion-dolar":
-            # ADMINDTA.COTIZA simulada: SIIC_COTIZACION ("" = todavía sin cargar hoy, para ver la alerta).
+            # COTIZA simulada (la misma de :6012): SIIC_COTIZACION ("" = todavía sin cargar hoy, para ver la alerta).
             fecha = q.get("fecha") or f"{datetime.now():%Y%m%d}"
-            valor = os.environ.get("SIIC_COTIZACION", "11.67").strip()
-            return self._json(200, {"fecha": fecha, "cotizacion": f"{Decimal(valor):.4f}" if valor else None})
+            return self._json(200, {"fecha": fecha, "cotizacion": _cotiza(fecha)})
         if usuario is None:
             return self._no_autenticado()
         if url.path == "/v1/usuarios" or url.path == "/v1/usuarios/caja-aperturada" or re.fullmatch(r"/v1/usuarios/\d+", url.path):

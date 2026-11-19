@@ -42,7 +42,9 @@ def enviar_facturas_pendientes():
 
 @shared_task
 def leer_cotizacion_bcb():
-    """Cada hora: el tipo de cambio oficial del BCB de hoy (referencia para la cotización del SIIC)."""
-    from .cotizacion import actualizar_bcb
+    """Cada hora: el tipo de cambio oficial del BCB de hoy (referencia para la cotización del SIIC) y, con
+    COTIZACION_CARGA_AUTOMATICA, la carga en el SIIC de los días de su vigencia que falten."""
+    from .cotizacion import actualizar_bcb, carga_automatica
 
     actualizar_bcb()
+    return carga_automatica()

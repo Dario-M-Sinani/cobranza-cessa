@@ -999,3 +999,20 @@ class CotizacionDolarBcbView(APIView):
         fila = cotizacion.actualizar_bcb(forzar=True)
         cotizacion.actualizar_siic(fila, request.user)
         return Response(cotizacion.estado(fila))
+
+
+class CotizacionDolarDiaView(APIView):
+    """`PUT /api/cotizacion-dolar/<AAAA-MM-DD>/` {"valor", "motivo"} (supervisor/admin): deja ese valor como
+    cotización del día en el SIIC (la carga si falta, la corrige si tiene otra). Queda registrado."""
+
+    permission_classes = [IsAuthenticated, EsSupervisorOAdmin]
+
+    def put(self, request, fecha):
+        try:
+            dia = datetime.strptime(fecha, "%Y-%m-%d").date()
+        except ValueError:
+            return Response({"detail": "Fecha inválida (AAAA-MM-DD)."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            return Response(cotizacion.corregir(request.user, dia, request.data.get("valor", ""), request.data.get("motivo", "")))
+        except cotizacion.CambioRechazado as exc:
+            return Response({"detail": str(exc)}, status=exc.status)

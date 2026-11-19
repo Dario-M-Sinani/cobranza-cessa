@@ -7,6 +7,7 @@ from .views import (
     CobroEfectivoViewSet,
     ComprobantesDelDiaView,
     CotizacionDolarBcbView,
+    CotizacionDolarDiaView,
     CotizacionDolarHistorialView,
     CotizacionDolarView,
     ConsultarDeudaView,
@@ -41,4 +42,5 @@ urlpatterns = [
     path("cotizacion-dolar/", CotizacionDolarView.as_view(), name="cotizacion-dolar"),
     path("cotizacion-dolar/historial/", CotizacionDolarHistorialView.as_view(), name="cotizacion-dolar-historial"),
     path("cotizacion-dolar/releer-bcb/", CotizacionDolarBcbView.as_view(), name="cotizacion-dolar-bcb"),
+    path("cotizacion-dolar/<str:fecha>/", CotizacionDolarDiaView.as_view(), name="cotizacion-dolar-dia"),
 ] + router.urls

@@ -551,6 +551,8 @@ class CotizacionDolar(models.Model):
     bcb_fuente = models.CharField(max_length=30, blank=True, default="")
     bcb_leida_en = models.DateTimeField(null=True, blank=True)
     bcb_error = models.TextField(blank=True, default="")
+    # Último intento fallido de la carga automática de ese día (vacío si no hubo o si después se cargó).
+    carga_error = models.TextField(blank=True, default="")
     actualizada_en = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -558,3 +560,32 @@ class CotizacionDolar(models.Model):
 
     def __str__(self):
         return f"Cotización {self.fecha}: SIIC {self.siic} / BCB {self.bcb}"
+
+
+class CotizacionCambio(models.Model):
+    """Registro de cada escritura del panel en la cotización del SIIC (COTIZA): la carga automática con el
+    valor del BCB y las correcciones a mano. Nunca se edita ni se borra."""
+
+    class Accion(models.TextChoices):
+        CARGA_AUTOMATICA = "carga_automatica", "Carga automática (BCB)"
+        CARGA_MANUAL = "carga_manual", "Carga manual"
+        CORRECCION = "correccion", "Corrección"
+
+    fecha = models.DateField(db_index=True)  # el día de la cotización (COTFEC)
+    accion = models.CharField(max_length=20, choices=Accion.choices)
+    valor_anterior = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True)
+    valor_nuevo = models.DecimalField(max_digits=10, decimal_places=4)
+    # "bcb.gob.bo, vigencia del ... al ..." o "manual".
+    origen = models.CharField(max_length=255, blank=True, default="")
+    motivo = models.TextField(blank=True, default="")
+    usuario = models.ForeignKey(  # nulo = la tarea automática
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    tabla = models.CharField(max_length=40, blank=True, default="")  # RESTAURA.COTIZA, ADMINDTA.COTIZA...
+    creado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-creado_en"]
+
+    def __str__(self):
+        return f"{self.get_accion_display()} {self.fecha}: {self.valor_anterior} → {self.valor_nuevo}"

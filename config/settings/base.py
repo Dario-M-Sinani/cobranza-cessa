@@ -189,6 +189,9 @@ CELERY_BEAT_SCHEDULE = {
 
 BCB_COTIZACION_URL = env("BCB_COTIZACION_URL", default="https://www.bcb.gob.bo/bcb_tco_publico_ultima_cotizacion.php")
 FACTURA_BO_COTIZACION_URL = env("FACTURA_BO_COTIZACION_URL", default="https://api.factura.bo/ExchangeRate")
+# La tarea de cada hora carga en el SIIC (API SIIC, COTIZA) la cotización del BCB de cada día de su vigencia que
+# falte. Solo sirve donde la API SIIC tiene la carga habilitada (test: COTIZA_BIBLIOTECA=RESTAURA).
+COTIZACION_CARGA_AUTOMATICA = env.bool("COTIZACION_CARGA_AUTOMATICA", default=False)
 
 # Integración MC4/SIP (ver services/mc4_client.py) -- misma pasarela que ya usa
 # cessa-laravel en producción (SipQrProvider.php) contra Banco BISA. Sin

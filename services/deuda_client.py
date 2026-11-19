@@ -338,3 +338,77 @@ def get_deuda_client() -> DeudaClientInterface:
 
     client_class = import_string(settings.DEUDA_CLIENT_CLASS)
     return client_class()
+
+
+def _siic_json(metodo: str, ruta: str, que: str, **kwargs) -> tuple[int, dict]:
+    """Pedido a la API SIIC (SIIC_DEUDA_BASE_URL, con su token): `(status, body)`; DeudaClientError si no
+    respondió JSON."""
+    try:
+        response = requests.request(
+            metodo,
+            f"{settings.SIIC_DEUDA_BASE_URL}{ruta}",
+            headers={"Authorization": settings.SIIC_DEUDA_TOKEN, "Accept": "application/json"},
+            timeout=30,
+            **kwargs,
+        )
+        body = response.json()
+    except requests.RequestException as exc:
+        raise DeudaClientError(f"{que}: {exc}") from exc
+    except ValueError as exc:
+        raise DeudaClientError(f"{que}: respuesta no es JSON válido (HTTP {response.status_code})") from exc
+    if not isinstance(body, dict):
+        raise DeudaClientError(f"{que}: respuesta inesperada {body!r}")
+    return response.status_code, body
+
+
+def _mensaje_error(body: dict) -> str:
+    error = body.get("error", body)
+    if isinstance(error, dict):
+        return "; ".join(f"{k}: {', '.join(map(str, v)) if isinstance(v, list) else v}" for k, v in error.items())
+    if isinstance(error, list):
+        return "; ".join(map(str, error))
+    return str(error)
+
+
+def cotizacion_siic(fecha_aaaammdd: str) -> dict:
+    """`GET /v1/cajas/cotizacion` de la API SIIC: {"fecha", "cotizacion"} (null si ese día no tiene). Es la
+    misma tabla COTIZA con la que esa API cierra las cajas."""
+    status, body = _siic_json("get", "/v1/cajas/cotizacion", "cotización del dólar", params={"fecha": fecha_aaaammdd})
+    if status != 200:
+        raise DeudaClientError(f"cotización del dólar: HTTP {status}: {_mensaje_error(body)}")
+    return body
+
+
+class CotizacionNoCargada(DeudaClientError):
+    """El SIIC no aceptó la carga (no habilitada, ya había otra, valor inválido): el mensaje es para la pantalla."""
+
+    def __init__(self, mensaje: str, status: int):
+        super().__init__(mensaje)
+        self.status = status
+
+
+def cargar_cotizacion_siic(fecha_aaaammdd: str, valor: str) -> dict:
+    """`POST /v1/cajas/cotizacion`: inserta la cotización de un día que no la tiene (nunca la reemplaza).
+    {"fecha", "cotizacion", "insertada", "tabla"}. 409/422/503 → CotizacionNoCargada con el motivo."""
+    status, body = _siic_json(
+        "post", "/v1/cajas/cotizacion", "cargar cotización del dólar", json={"fecha": fecha_aaaammdd, "cotizacion": valor}
+    )
+    if status == 200:
+        return body
+    if status in (409, 422, 503):
+        raise CotizacionNoCargada(_mensaje_error(body), status)
+    raise DeudaClientError(f"cargar cotización del dólar: HTTP {status}: {_mensaje_error(body)}")
+
+
+def corregir_cotizacion_siic(fecha_aaaammdd: str, anterior: str, valor: str) -> dict:
+    """`PUT /v1/cajas/cotizacion`: cambia la cotización de un día solo si todavía vale `anterior`.
+    {"fecha", "anterior", "cotizacion", "tabla"}. 404/409/422/503 → CotizacionNoCargada con el motivo."""
+    status, body = _siic_json(
+        "put", "/v1/cajas/cotizacion", "corregir cotización del dólar",
+        json={"fecha": fecha_aaaammdd, "anterior": anterior, "cotizacion": valor},
+    )
+    if status == 200:
+        return body
+    if status in (404, 409, 422, 503):
+        raise CotizacionNoCargada(_mensaje_error(body), status)
+    raise DeudaClientError(f"corregir cotización del dólar: HTTP {status}: {_mensaje_error(body)}")
