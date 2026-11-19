@@ -466,7 +466,8 @@ def _ficha_desde_cuerpo(d: dict) -> dict:
             ficha[f"habilitado_{dia}"] = bool(d[f"habilitado_{dia}"])
     return ficha
 # Catálogos GET /v1/entes y /v1/bancos (los ids reales salen del SIIC: estos son de ejemplo).
-ENTES = {1: "CHEQUE", 2: "SIGMA", 3: "DEPOSITO", 4: "DIVIDENDO", 5: "TARJETA", 6: "DOLARES", 7: "EFECTIVO", 8: "PAGO POR QR"}
+ENTES = {1: "CHEQUE", 2: "SIGMA", 3: "DEPOSITO", 4: "DIVIDENDO", 5: "TARJETA", 6: "DOLARES", 7: "EFECTIVO",
+         8: "DEVOLUCIONES", 9: "OTROS SERVICIOS", 10: "PAGO POR QR"}  # como TCNN3052 de BKLDTA
 BANCOS = {1: "OTRO", 2: "BANCO BISA", 3: "BANCO NACIONAL DE BOLIVIA", 4: "BANCO MERCANTIL SANTA CRUZ", 5: "BANCO UNION"}
 ENTE_EFECTIVO = {"B": 7, "D": 6}
 LOTE_ENTES, LOTE_EFECTIVO = 9000, {"B": 9001, "D": 9002}

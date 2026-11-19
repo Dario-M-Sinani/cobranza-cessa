@@ -20,8 +20,9 @@ from services.cobranzas_banco_client import CajeraCobranzasClient, CobranzasBanc
 
 ENTIDAD_CESSA = 1
 TOPE_BANCOS = Decimal("50000")
-# Los que no se eligen al cobrar: el efectivo es la pestaña Efectivo y el QR, la pestaña QR.
-NO_SE_ELIGEN = {"EFECTIVO", "DOLARES", "PAGO POR QR"}
+# Los que no se eligen al cobrar: el efectivo es la pestaña Efectivo y el QR, la pestaña QR. DEVOLUCIONES
+# tampoco: la app Java lo saca de la lista al cobrar (entesEfectivo.remove(5), el ente 8 del SIIC).
+NO_SE_ELIGEN = {"EFECTIVO", "DOLARES", "PAGO POR QR", "DEVOLUCIONES"}
 DIAS_MAX_CHEQUE = 27
 DIAS_MIN_PARA_VENCER = 3
 

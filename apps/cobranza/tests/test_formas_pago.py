@@ -15,7 +15,7 @@ from .test_cajas_por_cajera import cajera_nest, con_nest, supervisor  # noqa: F4
 from .test_cobro_agrupado import _api, deudas  # noqa: F401 -- fixtures
 
 ENTES = [{"id": 1, "descripcion": "CHEQUE"}, {"id": 3, "descripcion": "DEPOSITO"}, {"id": 7, "descripcion": "EFECTIVO"},
-         {"id": 8, "descripcion": "PAGO POR QR"}]
+         {"id": 8, "descripcion": "DEVOLUCIONES"}, {"id": 9, "descripcion": "OTROS SERVICIOS"}, {"id": 10, "descripcion": "PAGO POR QR"}]
 BANCOS = [{"id": 3, "descripcion": "BANCO NACIONAL DE BOLIVIA"}]
 
 
@@ -50,7 +50,7 @@ class TestCobroConDocumento:
     def test_catalogo_sin_efectivo_ni_qr(self, cajera_nest):
         r = _api(cajera_nest).get("/api/cobros-efectivo/formas-pago/")
         assert r.data["disponible"] is True
-        assert [e["descripcion"] for e in r.data["entes"]] == ["CHEQUE", "DEPOSITO"]
+        assert [e["descripcion"] for e in r.data["entes"]] == ["CHEQUE", "DEPOSITO", "OTROS SERVICIOS"]  # como la app Java
 
     def test_cheque_sin_vuelto(self, cajera_nest, con_caja, deudas):  # noqa: F811
         r = _cobrar(cajera_nest, deudas[0], _cheque())
