@@ -192,3 +192,13 @@ class TestAnulacionDelCobro:
         assert r.status_code == 200, r.data
         assert r.data["anuladas"] == 2
         assert set(Factura.objects.filter(transaccion_qr__grupo_qr=grupo).values_list("estado_envio", flat=True)) == {"anulado"}
+
+
+def test_sip_simulado_sin_pago_por_prefijo(settings):
+    from services.fakes import FakeMC4Client
+
+    settings.MC4_FAKE_SIN_PAGO = ["qrgr-"]
+    sip = FakeMC4Client()
+    assert [sip.consultar_estado("qrgr-1").estado for _ in range(3)] == [EstadoPagoMC4.PENDIENTE] * 3
+    sip.consultar_estado("txqr-9")
+    assert sip.consultar_estado("txqr-9").estado == EstadoPagoMC4.PAGADO

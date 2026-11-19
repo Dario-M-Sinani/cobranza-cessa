@@ -197,6 +197,9 @@ COTIZACION_CARGA_AUTOMATICA = env.bool("COTIZACION_CARGA_AUTOMATICA", default=Fa
 # cessa-laravel en producción (SipQrProvider.php) contra Banco BISA. Sin
 # credenciales reales todavía: queda como stub documentado.
 MC4_CLIENT_CLASS = env("MC4_CLIENT_CLASS", default="services.mc4_client.SipMC4Client")
+# Solo con el SIP simulado (FakeMC4Client): los QR cuyo alias empieza con uno de estos prefijos nunca se
+# pagan solos (quedan esperando hasta que se anulen o venzan). Para mostrar un QR en test sin cobrar.
+MC4_FAKE_SIN_PAGO = env.list("MC4_FAKE_SIN_PAGO", default=[])
 MC4_BASE_URL = env("MC4_BASE_URL", default="")
 MC4_APIKEY = env("MC4_APIKEY", default="")
 MC4_USERNAME = env("MC4_USERNAME", default="")

@@ -69,6 +69,11 @@ class FakeMC4Client(MC4ClientInterface):
         self._alias_ya_consultados.discard(alias)
 
     def consultar_estado(self, alias: str) -> EstadoTransaccionQR:
+        from django.conf import settings
+
+        if any(alias.startswith(p) for p in getattr(settings, "MC4_FAKE_SIN_PAGO", [])):
+            return EstadoTransaccionQR(alias=alias, estado=EstadoPagoMC4.PENDIENTE, fecha_procesamiento=None,
+                                       monto=None, numero_orden_originante="demo", id_qr=None)
         ya_consultado = alias in self._alias_ya_consultados
         self._alias_ya_consultados.add(alias)
         estado = EstadoPagoMC4.PAGADO if ya_consultado else EstadoPagoMC4.PENDIENTE
