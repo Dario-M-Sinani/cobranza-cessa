@@ -4,7 +4,7 @@ SIP tiene un solo Basic Auth por cuenta, así que en vez de que cada sistema exp
 todos mandan en `generaQr` la URL de este endpoint (`settings.SIP_CALLBACK_URL`) y acá se
 decide por el prefijo del alias:
 
-- `txqr-` (QR del panel de cobranza): se confirma contra SIP con `verificar_pago()` -- igual
+- `txqr-` y `qrgr-` (QR del panel de cobranza, de uno o de varios clientes): se confirma contra SIP con `verificar_pago()` -- igual
   que la tarea periódica, así un aviso falso no puede marcar nada.
 - `CESSA-KIO-` (pantallas de autoservicio, apps.kiosco): mismo criterio, se confirma contra SIP
   y se factura acá mismo. Las pantallas están en la red interna, sin internet.
@@ -37,6 +37,8 @@ from .models import AvisoSip, SolicitudLiquidacion
 logger = logging.getLogger(__name__)
 
 PREFIJO_PANEL = "txqr-"
+# QR de varios clientes del panel (QRAgrupado): un solo alias para todas sus TransaccionQR.
+PREFIJO_PANEL_GRUPO = "qrgr-"
 TIMEOUT_REENVIO = 20
 
 
@@ -87,6 +89,8 @@ class SipCallbackView(APIView):
 
         if alias.startswith(PREFIJO_PANEL):
             return self._confirmar_en_panel(alias)
+        if alias.startswith(PREFIJO_PANEL_GRUPO):
+            return self._confirmar_grupo_en_panel(alias)
 
         # Antes que los reenvíos: "CESSA-KIO-" y "CESSA-BOT-" también empiezan con "CESSA-".
         if alias.startswith(SolicitudLiquidacion.PREFIJO_KIOSCO):
@@ -114,6 +118,20 @@ class SipCallbackView(APIView):
         # tomó antes la tarea periódica) no se toca nada. En ambos casos el aviso se recibió.
         cobranza_services.verificar_pago(transaccion)
         logger.info("sip_callback.panel alias=%s estado=%s", alias, transaccion.estado)
+        return _respuesta("0000", "Registro Exitoso")
+
+    def _confirmar_grupo_en_panel(self, alias: str) -> Response:
+        try:
+            grupo_id = int(alias[len(PREFIJO_PANEL_GRUPO):])
+        except ValueError:
+            grupo_id = None
+        transaccion = TransaccionQR.objects.filter(grupo_qr_id=grupo_id).order_by("pk").first() if grupo_id else None
+        if transaccion is None:
+            logger.warning("sip_callback.alias_desconocido alias=%s", alias)
+            return _respuesta("9999", "Alias no reconocido")
+        # verificar_pago confirma contra SIP y aplica el estado a todas las del grupo.
+        cobranza_services.verificar_pago(transaccion)
+        logger.info("sip_callback.panel_grupo alias=%s estado=%s", alias, transaccion.estado)
         return _respuesta("0000", "Registro Exitoso")
 
     def _confirmar_kiosco(self, alias: str) -> Response:

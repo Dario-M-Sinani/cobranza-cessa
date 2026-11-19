@@ -1,6 +1,7 @@
 """Anulación de un cobro del panel (como "Anular" en transacciones.xhtml de la app Java).
 
-La hace supervisor/admin, con motivo, solo el mismo día. Si la factura ya está en el SIIC se anula
+La hace supervisor/admin, con motivo, solo el mismo día; el responsable de una entidad financiera, solo los
+cobros de las cajeras de su banco (desde sus transacciones del SIIC, como en la app Java). Si la factura ya está en el SIIC se anula
 allá con el usuario de la Nest de quien anula (la Nest no deja anular a una cajera): el SIIC anula el
 lote y la deuda vuelve a quedar pendiente. Si todavía no se mandó, se anula solo acá y ya no se manda.
 Un cobro de varios clientes se anula entero (cada cliente tiene su propia factura).
@@ -14,7 +15,7 @@ from apps.auditoria.models import LogAuditoria
 from apps.usuarios.models import Usuario
 from services.cobranzas_banco_client import CajeraCobranzasClient, CobranzasBancoError
 
-from .models import CobroAgrupado, CobroEfectivo, Factura, TransaccionQR
+from .models import CobroAgrupado, CobroEfectivo, Factura, QRAgrupado, TransaccionQR
 
 
 class AnulacionInvalida(Exception):
@@ -30,7 +31,12 @@ def facturas_de(tipo: str, objeto_id: int) -> tuple[list[Factura], object]:
         cobros = [cobro] if cobro else []
     elif tipo == "qr":
         cobro = TransaccionQR.objects.filter(pk=objeto_id, estado=TransaccionQR.Estado.PAGADO).first()
+        if cobro and cobro.grupo_qr_id:
+            raise AnulacionInvalida("Este QR es de varios clientes: se anula el QR entero.")
         cobros = [cobro] if cobro else []
+    elif tipo == "qrgrupo":
+        cobro = QRAgrupado.objects.filter(pk=objeto_id).first()
+        cobros = list(cobro.transacciones.filter(estado=TransaccionQR.Estado.PAGADO).order_by("pk")) if cobro else []
     elif tipo == "grupo":
         cobro = CobroAgrupado.objects.filter(pk=objeto_id).first()
         cobros = list(cobro.cobros.order_by("pk")) if cobro else []
@@ -38,18 +44,42 @@ def facturas_de(tipo: str, objeto_id: int) -> tuple[list[Factura], object]:
         raise AnulacionInvalida("Tipo de comprobante inválido.")
     if not cobros:
         raise AnulacionInvalida("No existe ese comprobante.")
-    facturas = [Factura.objects.get_or_create(**({"transaccion_qr": c} if tipo == "qr" else {"cobro_efectivo": c}))[0] for c in cobros]
+    es_qr = tipo in ("qr", "qrgrupo")
+    facturas = [Factura.objects.get_or_create(**({"transaccion_qr": c} if es_qr else {"cobro_efectivo": c}))[0] for c in cobros]
     return facturas, cobro
 
 
+def comprobante_de_factura(factura: Factura) -> tuple[str, int]:
+    """El comprobante del panel al que pertenece una factura: (tipo, id) para `anular_comprobante`."""
+    if factura.transaccion_qr_id:
+        grupo = factura.transaccion_qr.grupo_qr_id
+        return ("qrgrupo", grupo) if grupo else ("qr", factura.transaccion_qr_id)
+    cobro = factura.cobro_efectivo
+    if cobro is None:
+        raise AnulacionInvalida("La factura no tiene cobro.")
+    return ("grupo", cobro.grupo_id) if cobro.grupo_id else ("efectivo", cobro.pk)
+
+
+def _puede_anular(usuario, cobro) -> bool:
+    if usuario.rol in (Usuario.Rol.SUPERVISOR, Usuario.Rol.ADMIN):
+        return True
+    if usuario.rol == Usuario.Rol.ENTIDAD:
+        cajera = getattr(cobro, "usuario", None)
+        propia = int(usuario.entidad_financiera_id or 0)
+        return bool(propia and cajera is not None and int(cajera.entidad_financiera_id or 0) == propia)
+    return False
+
+
 def anular_comprobante(tipo: str, objeto_id: int, usuario, motivo: str) -> list[Factura]:
-    if usuario.rol not in (Usuario.Rol.SUPERVISOR, Usuario.Rol.ADMIN):
+    if usuario.rol not in (Usuario.Rol.SUPERVISOR, Usuario.Rol.ADMIN, Usuario.Rol.ENTIDAD):
         raise AnulacionInvalida("Solo un supervisor o administrador puede anular un cobro.")
     motivo = (motivo or "").strip()
     if len(motivo) < 5:
         raise AnulacionInvalida("Escribe el motivo de la anulación.")
 
     facturas, cobro = facturas_de(tipo, objeto_id)
+    if not _puede_anular(usuario, cobro):
+        raise AnulacionInvalida("Solo puedes anular cobros de las cajeras de tu entidad.")
     fecha_cobro = timezone.localtime(getattr(cobro, "creado_en", None) or cobro.actualizado_en).date()
     if fecha_cobro != timezone.localdate():
         raise AnulacionInvalida("Solo se pueden anular cobros del día (el SIIC no anula fechas pasadas).")

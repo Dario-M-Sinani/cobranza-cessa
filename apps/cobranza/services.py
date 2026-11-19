@@ -21,7 +21,7 @@ from services.cobranzas_banco_client import (
 from services.mc4_client import EstadoPagoMC4, MC4ClientError, SolicitudQR, get_mc4_client
 
 from . import formas_pago
-from .models import Caja, CobroAgrupado, CobroEfectivo, Deuda, Factura, TransaccionQR
+from .models import Caja, CobroAgrupado, CobroEfectivo, Deuda, Factura, QRAgrupado, TransaccionQR
 
 QR_VENCIMIENTO_DIAS = 1  # SIP solo acepta fecha (no hora) de vencimiento.
 
@@ -106,7 +106,28 @@ def _caja_para_cobrar(usuario):
 
 
 def _alias(transaccion: TransaccionQR) -> str:
+    """Alias del QR en SIP: el del grupo si el QR es de varios clientes (comparten uno solo)."""
+    if transaccion.grupo_qr_id:
+        return f"qrgr-{transaccion.grupo_qr_id}"
     return f"txqr-{transaccion.pk}"
+
+
+def _hermanas_bloqueadas(transaccion: TransaccionQR) -> list[TransaccionQR]:
+    """Las TransaccionQR que comparten el QR de SIP (ella sola si no es de un grupo), bloqueadas y en
+    orden: un QR de varios clientes se paga, vence o se anula entero."""
+    if not transaccion.grupo_qr_id:
+        return [TransaccionQR.objects.select_for_update().get(pk=transaccion.pk)]
+    return list(TransaccionQR.objects.select_for_update().filter(grupo_qr_id=transaccion.grupo_qr_id).order_by("pk"))
+
+
+def _aplicar_estado(hermanas: list[TransaccionQR], nuevo_estado: str, usuario=None) -> None:
+    for t in hermanas:
+        if t.estado == TransaccionQR.Estado.GENERADO and nuevo_estado == TransaccionQR.Estado.PAGADO:
+            t.transicionar_estado(TransaccionQR.Estado.PENDIENTE_CONFIRMACION)
+        if nuevo_estado in TransaccionQR.TRANSICIONES_PERMITIDAS.get(t.estado, set()):
+            t.transicionar_estado(nuevo_estado, usuario=usuario)
+            if nuevo_estado == TransaccionQR.Estado.PAGADO:
+                crear_factura(t)
 
 
 def _importe_item(item: dict) -> Decimal:
@@ -234,6 +255,70 @@ def generar_transaccion_qr(
     return transaccion
 
 
+MAX_CLIENTES_QR = 20
+
+
+@transaction.atomic
+def generar_qr_agrupado(seleccion: list[tuple[Deuda, int | None]], usuario) -> QRAgrupado:
+    """Un solo QR de SIP por el total de varios clientes (`[(deuda, cantidad_comprobantes)]`). Cada uno
+    queda como su TransaccionQR del grupo; se confirman, vencen o anulan juntas. Si la pasarela falla,
+    no queda nada (la transacción se deshace) y se puede volver a intentar. Con un solo cliente usar generar_transaccion_qr()."""
+    if len(seleccion) < 2:
+        raise MontoInvalidoError("Un QR de varios clientes necesita al menos dos clientes.")
+    if len(seleccion) > MAX_CLIENTES_QR:
+        raise MontoInvalidoError(f"Un QR puede cubrir hasta {MAX_CLIENTES_QR} clientes.")
+    clientes = [deuda.cliente_id for deuda, _ in seleccion]
+    if len(set(clientes)) != len(clientes):
+        raise MontoInvalidoError("Hay un cliente repetido en el cobro.")
+
+    partes = []
+    for deuda, cantidad in seleccion:
+        monto, items = resolver_seleccion(deuda, None, cantidad)
+        partes.append((deuda, monto, items))
+    total = sum((monto for _, monto, _ in partes), Decimal("0"))
+    _validar_tope(usuario, total)
+
+    en_curso = TransaccionQR.objects.filter(
+        deuda__cliente_id__in=clientes,
+        estado__in=[TransaccionQR.Estado.GENERADO, TransaccionQR.Estado.PENDIENTE_CONFIRMACION],
+    ).select_related("deuda__cliente").first()
+    if en_curso is not None:
+        raise TransaccionEnCursoError(f"El cliente {en_curso.deuda.cliente} ya tiene un QR de cobro pendiente.")
+
+    caja_abierta = _caja_para_cobrar(usuario)
+    grupo = QRAgrupado.objects.create(usuario=usuario, caja=caja_abierta, monto_total=total)
+    hijas = [
+        TransaccionQR.objects.create(
+            deuda=deuda, usuario=usuario, monto_snapshot=monto, items_cobrados=items, caja=caja_abierta, grupo_qr=grupo
+        )
+        for deuda, monto, items in partes
+    ]
+
+    solicitud = SolicitudQR(
+        alias=f"qrgr-{grupo.pk}",
+        monto=total,
+        moneda="BOB",
+        descripcion=f"Cobranza CESSA - {len(hijas)} clientes",
+        fecha_vencimiento=date.today() + timedelta(days=QR_VENCIMIENTO_DIAS),
+        callback_url=settings.SIP_CALLBACK_URL,
+    )
+    try:
+        resultado = get_mc4_client().generar_qr(solicitud)
+    except MC4ClientError as exc:
+        for t in hijas:
+            t.transicionar_estado(TransaccionQR.Estado.ERROR, usuario=usuario)
+        raise ErrorGeneracionQR(str(exc)) from exc
+
+    grupo.id_operacion_mc4 = resultado.id_transaccion
+    grupo.save(update_fields=["id_operacion_mc4"])
+    for t in hijas:
+        t.id_operacion_mc4 = resultado.id_transaccion
+        t.save(update_fields=["id_operacion_mc4"])
+        t.transicionar_estado(TransaccionQR.Estado.PENDIENTE_CONFIRMACION, usuario=usuario)
+    grupo.imagen_qr_base64 = resultado.imagen_qr_base64  # de un solo uso, como en generar_transaccion_qr
+    return grupo
+
+
 # Traduce el estado remoto de MC4/SIP al estado local de TransaccionQR.
 # "INHABILITADO" mapea a CANCELADO: en SIP significa que el QR fue dado de
 # baja antes de cobrarse, lo más cercano semánticamente a una cancelación.
@@ -263,11 +348,11 @@ def verificar_pago(transaccion: TransaccionQR) -> TransaccionQR:
     if nuevo_estado is None:
         return transaccion  # sigue pendiente del lado de MC4
 
-    transaccion.transicionar_estado(nuevo_estado)
-
-    if nuevo_estado == TransaccionQR.Estado.PAGADO:
-        crear_factura(transaccion)
-
+    # Todas las que comparten el QR (una sola si no es de varios clientes), bloqueadas: la tarea, la
+    # pantalla y el aviso de SIP pueden llegar a la vez y ninguna se confirma dos veces.
+    hermanas = [t for t in _hermanas_bloqueadas(transaccion) if t.estado == TransaccionQR.Estado.PENDIENTE_CONFIRMACION]
+    _aplicar_estado(hermanas, nuevo_estado)
+    transaccion.refresh_from_db()
     return transaccion
 
 
@@ -298,7 +383,8 @@ def anular_qr(transaccion: TransaccionQR, usuario) -> TransaccionQR:
     """Anula un QR que el cliente no pagó (como dar_de_baja del kiosco): primero se inhabilita en SIP
     y después se vuelve a consultar. Si justo pagó, queda PAGADO con su factura en vez de anulado:
     nunca se anula un QR por el que entró plata. Sin confirmación de SIP no se anula."""
-    transaccion = TransaccionQR.objects.select_for_update().get(pk=transaccion.pk)
+    hermanas = _hermanas_bloqueadas(transaccion)
+    transaccion = next(t for t in hermanas if t.pk == transaccion.pk)
     if transaccion.estado not in (TransaccionQR.Estado.GENERADO, TransaccionQR.Estado.PENDIENTE_CONFIRMACION):
         raise AnulacionQRError(f"El QR ya está {transaccion.get_estado_display().lower()}.")
     cliente = get_mc4_client()
@@ -311,12 +397,10 @@ def anular_qr(transaccion: TransaccionQR, usuario) -> TransaccionQR:
     except MC4ClientError as exc:
         raise AnulacionQRError(f"No se pudo confirmar con el banco que el QR no se pagó. Intenta de nuevo. ({exc})") from exc
     if estado.estado == EstadoPagoMC4.PAGADO:
-        if transaccion.estado == TransaccionQR.Estado.GENERADO:
-            transaccion.transicionar_estado(TransaccionQR.Estado.PENDIENTE_CONFIRMACION)
-        transaccion.transicionar_estado(TransaccionQR.Estado.PAGADO)
-        crear_factura(transaccion)
-        return transaccion
-    transaccion.transicionar_estado(TransaccionQR.Estado.CANCELADO, usuario=usuario)
+        _aplicar_estado(hermanas, TransaccionQR.Estado.PAGADO)
+    else:
+        _aplicar_estado(hermanas, TransaccionQR.Estado.CANCELADO, usuario=usuario)
+    transaccion.refresh_from_db()
     return transaccion
 
 

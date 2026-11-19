@@ -52,17 +52,42 @@ class TransaccionQRSerializer(serializers.ModelSerializer):
     # generar_transaccion_qr() (atributo transitorio, MC4 no permite volver
     # a pedir la imagen después). En list/retrieve normales da null.
     imagen_qr_base64 = serializers.SerializerMethodField()
+    # QR de varios clientes: el total y quiénes entran (todas las del grupo cambian de estado juntas).
+    grupo_qr = serializers.SerializerMethodField()
 
     def get_imagen_qr_base64(self, obj):
         return getattr(obj, "imagen_qr_base64", None)
+
+    def get_grupo_qr(self, obj):
+        if not obj.grupo_qr_id:
+            return None
+        hermanas = obj.grupo_qr.transacciones.select_related("deuda__cliente", "factura").order_by("pk")
+        return {
+            "id": obj.grupo_qr_id,
+            "monto_total": f"{obj.grupo_qr.monto_total:.2f}",
+            "clientes": [
+                {"transaccion_id": t.pk, "codigo": t.deuda.cliente.codigo_externo, "nombre": t.deuda.cliente.nombre,
+                 "monto": f"{t.monto_snapshot:.2f}", "factura_id": getattr(getattr(t, "factura", None), "pk", None)}
+                for t in hermanas
+            ],
+        }
 
     class Meta:
         model = TransaccionQR
         fields = [
             "id", "deuda", "usuario", "caja", "id_operacion_mc4", "monto_snapshot",
-            "estado", "creado_en", "actualizado_en", "factura", "imagen_qr_base64", "items_cobrados",
+            "estado", "creado_en", "actualizado_en", "factura", "imagen_qr_base64", "items_cobrados", "grupo_qr",
         ]
         read_only_fields = [campo for campo in fields if campo != "imagen_qr_base64"]
+
+
+class ItemQRAgrupadoSerializer(serializers.Serializer):
+    deuda_id = serializers.PrimaryKeyRelatedField(queryset=Deuda.objects.all(), source="deuda")
+    cantidad_comprobantes = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+
+
+class GenerarQRAgrupadoSerializer(serializers.Serializer):
+    items = ItemQRAgrupadoSerializer(many=True)
 
 
 class GenerarTransaccionQRSerializer(serializers.Serializer):

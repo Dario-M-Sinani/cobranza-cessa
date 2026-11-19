@@ -77,6 +77,11 @@ class TransaccionQR(models.Model):
     # en el orden en que SIIC exige pagarlos). Es lo que se manda a pagar al
     # facturar; vacío = cobro anterior a este campo -> se usa la deuda completa.
     items_cobrados = models.JSONField(default=list, blank=True, encoder=DjangoJSONEncoder)
+    # QR de varios clientes: todas las del grupo comparten un solo QR de SIP (alias qrgr-N) y cambian de
+    # estado juntas (services.verificar_pago / anular_qr). Cada una sigue con su factura.
+    grupo_qr = models.ForeignKey(
+        "QRAgrupado", on_delete=models.PROTECT, null=True, blank=True, related_name="transacciones"
+    )
     estado = models.CharField(max_length=30, choices=Estado.choices, default=Estado.GENERADO)
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
@@ -189,6 +194,24 @@ class CobroAgrupado(models.Model):
 
     def __str__(self):
         return f"CobroAgrupado#{self.pk} {self.monto_total}"
+
+
+class QRAgrupado(models.Model):
+    """Un solo QR que cubre deudas de varios clientes (como "Facturas programadas a pagar" + "PAGO POR
+    QR" de la app Java). Cada cliente queda como su propia TransaccionQR (con su factura en el SIIC); acá
+    queda el total y el QR de SIP. Ver services.generar_qr_agrupado()."""
+
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="qr_agrupados")
+    caja = models.ForeignKey("Caja", on_delete=models.PROTECT, null=True, blank=True, related_name="qr_agrupados")
+    monto_total = models.DecimalField(max_digits=12, decimal_places=2)
+    id_operacion_mc4 = models.CharField(max_length=100, blank=True, default="")
+    creado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-creado_en"]
+
+    def __str__(self):
+        return f"QRAgrupado#{self.pk} {self.monto_total}"
 
 
 class Factura(models.Model):
@@ -520,6 +543,7 @@ class ImpresionComprobante(models.Model):
         EFECTIVO = "efectivo", "Efectivo"
         QR = "qr", "QR"
         GRUPO = "grupo", "Efectivo de varios clientes"
+        QR_GRUPO = "qrgrupo", "QR de varios clientes"
 
     tipo = models.CharField(max_length=10, choices=Tipo.choices)
     objeto_id = models.PositiveBigIntegerField()

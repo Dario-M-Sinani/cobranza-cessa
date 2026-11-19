@@ -32,6 +32,7 @@ from .models import (
     Deuda,
     Factura,
     ImpresionComprobante,
+    QRAgrupado,
     TransaccionQR,
 )
 from .serializers import (
@@ -43,6 +44,7 @@ from .serializers import (
     ConsultarDeudaSerializer,
     DeudaSerializer,
     FacturaSerializer,
+    GenerarQRAgrupadoSerializer,
     GenerarTransaccionQRSerializer,
     ReabrirCajaSerializer,
     RegistrarCobroAgrupadoSerializer,
@@ -60,6 +62,7 @@ from .services import (
     anular_qr,
     consultar_qr_ahora,
     enviar_factura_con_candado,
+    generar_qr_agrupado,
     generar_transaccion_qr,
     registrar_cobro_efectivo,
     registrar_cobro_efectivo_agrupado,
@@ -224,6 +227,42 @@ class TransaccionQRViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vie
             return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
 
         return Response(TransaccionQRSerializer(transaccion).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["post"], url_path="grupo", permission_classes=[IsAuthenticated, EsCajeraActiva])
+    def generar_grupo(self, request):
+        """`POST /api/transacciones-qr/grupo/ {"items": [{"deuda_id", "cantidad_comprobantes"}, ...]}`: un solo QR
+        por el total de varios clientes. Responde la primera TransaccionQR del grupo (con la imagen y
+        `grupo_qr`): la pantalla consulta y anula con ella, y eso vale para todo el grupo."""
+        entrada = GenerarQRAgrupadoSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        seleccion = [(i["deuda"], i.get("cantidad_comprobantes")) for i in entrada.validated_data["items"]]
+        try:
+            grupo = generar_qr_agrupado(seleccion, request.user)
+        except (DeudaSinSaldoError, MontoInvalidoError) as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except TransaccionEnCursoError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except ErrorGeneracionQR as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+        primera = grupo.transacciones.order_by("pk").first()
+        primera.imagen_qr_base64 = grupo.imagen_qr_base64
+        return Response(TransaccionQRSerializer(primera).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["get"], url_path=r"grupo/(?P<grupo_id>[0-9]+)")
+    def ver_grupo(self, request, grupo_id=None):
+        """`GET /api/transacciones-qr/grupo/<id>/`: el comprobante de un QR de varios clientes, con la misma
+        forma que un cobro en efectivo de varios clientes (sin recibido ni vuelto: es el total)."""
+        hijas = list(self.get_queryset().filter(grupo_qr_id=grupo_id).select_related("factura", "grupo_qr").order_by("pk"))
+        if not hijas:
+            return Response({"detail": "No encontrado."}, status=status.HTTP_404_NOT_FOUND)
+        grupo = hijas[0].grupo_qr
+        total = f"{grupo.monto_total:.2f}"
+        return Response({
+            "id": grupo.pk, "usuario": hijas[0].usuario.username, "caja": grupo.caja_id, "creado_en": grupo.creado_en,
+            "monto_total": total, "monto_recibido": total, "vuelto": "0.00",
+            "estado": hijas[0].estado,
+            "cobros": [TransaccionQRSerializer(t).data | {"documento": {"ente": "QR"}} for t in hijas],
+        })
 
     @action(detail=True, methods=["post"])
     def cancelar(self, request, pk=None):
@@ -773,7 +812,7 @@ class RegistrarImpresionView(APIView):
         except (TypeError, ValueError):
             return Response({"detail": "Comprobante no válido."}, status=status.HTTP_400_BAD_REQUEST)
 
-        modelos = {"efectivo": CobroEfectivo, "qr": TransaccionQR, "grupo": CobroAgrupado}
+        modelos = {"efectivo": CobroEfectivo, "qr": TransaccionQR, "grupo": CobroAgrupado, "qrgrupo": QRAgrupado}
         if tipo not in modelos:
             return Response({"detail": "Comprobante no válido."}, status=status.HTTP_400_BAD_REQUEST)
         qs = modelos[tipo].objects.all()
@@ -784,8 +823,12 @@ class RegistrarImpresionView(APIView):
             return Response({"detail": "Comprobante no encontrado."}, status=status.HTTP_404_NOT_FOUND)
         if tipo == "qr" and objeto.estado != TransaccionQR.Estado.PAGADO:
             return Response({"detail": "El QR todavía no fue pagado."}, status=status.HTTP_400_BAD_REQUEST)
+        if tipo == "qrgrupo" and objeto.transacciones.exclude(estado=TransaccionQR.Estado.PAGADO).exists():
+            return Response({"detail": "El QR todavía no fue pagado."}, status=status.HTTP_400_BAD_REQUEST)
         if tipo == "efectivo" and objeto.grupo_id:
             tipo, pk = "grupo", objeto.grupo_id
+        if tipo == "qr" and objeto.grupo_qr_id:  # un QR de varios clientes es un solo comprobante
+            tipo, pk = "qrgrupo", objeto.grupo_qr_id
 
         with transaction.atomic():
             # Bloquea las impresiones previas de este comprobante: dos clics seguidos no
@@ -902,11 +945,22 @@ class ComprobantesDelDiaView(APIView):
         qrs = TransaccionQR.objects.filter(
             estado=TransaccionQR.Estado.PAGADO, actualizado_en__date=fecha, **propios
         ).select_related("usuario", "deuda__cliente", "factura")
-        for t in qrs:
+        grupos_qr = {}
+        for t in sorted(qrs, key=lambda t: t.pk):
+            if t.grupo_qr_id:
+                grupos_qr.setdefault(t.grupo_qr_id, []).append(t)
+                continue
             filas.append({
                 "tipo": "qr", "id": t.pk, "numero": f"COMP-QR-{t.pk}", "fecha": t.actualizado_en,
                 "forma_pago": "QR", "cajero": t.usuario.username, "monto": t.monto_snapshot,
                 "clientes": [self._cliente(t.deuda)], "facturas": [self._factura(t)], "facturas_ids": self._ids([t]),
+            })
+        for grupo_id, hijas in grupos_qr.items():
+            filas.append({
+                "tipo": "qrgrupo", "id": grupo_id, "numero": f"COMP-QG-{grupo_id}", "fecha": hijas[0].actualizado_en,
+                "forma_pago": "QR", "cajero": hijas[0].usuario.username, "monto": sum(t.monto_snapshot for t in hijas),
+                "clientes": [self._cliente(t.deuda) for t in hijas], "facturas": [self._factura(t) for t in hijas],
+                "facturas_ids": self._ids(hijas),
             })
 
         impresiones = {}
@@ -914,6 +968,7 @@ class ComprobantesDelDiaView(APIView):
             Q(tipo="efectivo", objeto_id__in=[f["id"] for f in filas if f["tipo"] == "efectivo"])
             | Q(tipo="grupo", objeto_id__in=[f["id"] for f in filas if f["tipo"] == "grupo"])
             | Q(tipo="qr", objeto_id__in=[f["id"] for f in filas if f["tipo"] == "qr"])
+            | Q(tipo="qrgrupo", objeto_id__in=[f["id"] for f in filas if f["tipo"] == "qrgrupo"])
         ).order_by("creado_en"):
             cantidad, _ = impresiones.get((imp.tipo, imp.objeto_id), (0, None))
             impresiones[(imp.tipo, imp.objeto_id)] = (cantidad + 1, imp.creado_en)
@@ -922,8 +977,10 @@ class ComprobantesDelDiaView(APIView):
         for factura in Factura.objects.filter(
             Q(cobro_efectivo__creado_en__date=fecha) | Q(transaccion_qr__actualizado_en__date=fecha),
             estado_envio=Factura.EstadoEnvio.ANULADO,
-        ).select_related("anulada_por", "cobro_efectivo"):
-            if factura.transaccion_qr_id:
+        ).select_related("anulada_por", "cobro_efectivo", "transaccion_qr"):
+            if factura.transaccion_qr_id and factura.transaccion_qr.grupo_qr_id:
+                clave = ("qrgrupo", factura.transaccion_qr.grupo_qr_id)
+            elif factura.transaccion_qr_id:
                 clave = ("qr", factura.transaccion_qr_id)
             elif factura.cobro_efectivo.grupo_id:
                 clave = ("grupo", factura.cobro_efectivo.grupo_id)
@@ -941,6 +998,11 @@ class ComprobantesDelDiaView(APIView):
             f["anulacion"] = anuladas.get((f["tipo"], f["id"]))
             f["se_puede_anular"] = not es_cajera and f["anulacion"] is None and fecha == hoy
             f["monto"] = f"{f['monto']:.2f}"
+        # Entidad financiera de la cajera (CESSA o un banco), para filtrar como "Transacciones" de la app
+        # Java. None = usuario local del panel.
+        entidades = dict(Usuario.objects.filter(username__in={f["cajero"] for f in filas}).values_list("username", "entidad_financiera_id"))
+        for f in filas:
+            f["entidad_id"] = entidades.get(f["cajero"])
         filas.sort(key=lambda f: f["fecha"], reverse=True)
         return Response({"fecha": fecha.isoformat(), "comprobantes": filas})
 

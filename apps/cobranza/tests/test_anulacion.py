@@ -125,3 +125,78 @@ class TestAnulacion:
         assert resumen_caja(caja)["monto_total"] == Decimal("0")
         fila = next(f for f in _api(supervisora_nest).get("/api/comprobantes/").data["comprobantes"] if f["id"] == cobro.pk)
         assert fila["anulacion"]["motivo"] == MOTIVO and fila["se_puede_anular"] is False
+
+
+def _responsable(username, entidad):
+    u = Usuario.objects.create_user(username=username, rol=Usuario.Rol.ENTIDAD, origen=Usuario.Origen.NEST, entidad_financiera_id=entidad)
+    u.set_unusable_password()
+    u.save()
+    nest.guardar_sesion(u, {"access_token": f"acc-{username}", "refresh_token": "r"})
+    return u
+
+
+def _anular_siic(usuario, uuid="uuid-1", motivo=MOTIVO):
+    from rest_framework.test import APIClient
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    c = APIClient()  # por el JWT real: así pasa por el límite de rutas del rol entidad
+    c.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(usuario).access_token}")
+    return c.post(f"/api/transacciones-siic/{uuid}/anular/", {"motivo": motivo}, format="json")
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("con_nest")
+class TestAnulacionDesdeTransaccionesDelSiic:
+    """Un cobro del panel también se anula desde las transacciones del SIIC (como en la app Java): el
+    responsable de una entidad, solo los de las cajeras de su banco."""
+
+    def test_el_responsable_anula_los_de_su_entidad(self, cajera, deudas):  # noqa: F811
+        cajera.entidad_financiera_id = 4
+        cajera.save()
+        responsable = _responsable("RESPBNB", 4)
+        cobro = _cobro(deudas[0], cajera)
+        usados = []
+        with patch.object(CajeraCobranzasClient, "anular_transaccion", autospec=True,
+                          side_effect=lambda self, uuid: usados.append((self.usuario, uuid)) or {}):
+            r = _anular_siic(responsable)
+        assert r.status_code == 200, r.data
+        assert usados == [(responsable, "uuid-1")] and r.data["anuladas"] == 1
+        f = Factura.objects.get(cobro_efectivo=cobro)
+        assert (f.estado_envio, f.anulada_por) == ("anulado", responsable)
+
+    def test_no_los_de_otra_entidad(self, cajera, deudas):  # noqa: F811
+        cajera.entidad_financiera_id = 1
+        cajera.save()
+        cobro = _cobro(deudas[0], cajera)
+        with patch.object(CajeraCobranzasClient, "anular_transaccion", autospec=True) as anular:
+            r = _anular_siic(_responsable("RESPBNB", 4))
+        assert r.status_code == 400 and "tu entidad" in r.data["detail"]
+        anular.assert_not_called()
+        assert Factura.objects.get(cobro_efectivo=cobro).estado_envio == Factura.EstadoEnvio.ENVIADO
+
+    def test_ni_por_comprobantes(self, cajera, deudas):  # noqa: F811
+        cajera.entidad_financiera_id = 4
+        cajera.save()
+        cobro = _cobro(deudas[0], cajera)
+        from rest_framework.test import APIClient
+        from rest_framework_simplejwt.tokens import RefreshToken
+
+        c = APIClient()
+        c.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(_responsable('RESPBNB', 4)).access_token}")
+        r = c.post("/api/comprobantes/anular/", {"tipo": "efectivo", "id": cobro.pk, "motivo": MOTIVO}, format="json")
+        assert r.status_code == 403
+
+    def test_la_supervisora_tambien_desde_aca(self, cajera, deudas, supervisora_nest):  # noqa: F811
+        _cobro(deudas[0], cajera)
+        with patch.object(CajeraCobranzasClient, "anular_transaccion", autospec=True, return_value={}):
+            r = _api(supervisora_nest).post("/api/transacciones-siic/uuid-1/anular/", {"motivo": MOTIVO}, format="json")
+        assert r.status_code == 200, r.data
+
+
+@pytest.mark.django_db
+def test_comprobantes_traen_la_entidad_de_la_cajera(cajera, deudas, supervisora_nest):  # noqa: F811
+    cajera.entidad_financiera_id = 4
+    cajera.save()
+    cobro = _cobro(deudas[0], cajera, enviado=False)
+    fila = next(f for f in _api(supervisora_nest).get("/api/comprobantes/").data["comprobantes"] if f["id"] == cobro.pk)
+    assert fila["entidad_id"] == 4

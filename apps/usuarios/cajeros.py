@@ -324,7 +324,7 @@ def anular_transaccion(usuario, uuid: str, motivo: str) -> dict:
         raise CajerosError("Escribe el motivo de la anulación.")
     origen = _origenes([uuid]).get(uuid)
     if origen == "panel":
-        raise CajerosError("Es un cobro hecho en este panel: anúlalo desde Comprobantes.")
+        return _anular_del_panel(usuario, uuid, motivo)
     if origen == "web":
         raise CajerosError("Es un pago web, del bot o del kiosco: el dinero ya entró al banco y no se anula desde acá.")
     respuesta = _llamar(usuario, "post", f"/v1/transacciones/{uuid}/anular")
@@ -334,3 +334,21 @@ def anular_transaccion(usuario, uuid: str, motivo: str) -> dict:
         entidad_afectada=f"Transaccion:{uuid}"[:255],
     )
     return respuesta
+
+
+def _anular_del_panel(usuario, uuid: str, motivo: str) -> dict:
+    """Un cobro hecho en este panel se anula como en Comprobantes (también lo saca de los totales del
+    panel y anula el cobro entero si es de varios clientes). El responsable de una entidad, solo los de
+    las cajeras de su banco."""
+    from apps.cobranza import anulacion
+    from apps.cobranza.models import Factura
+
+    factura = Factura.objects.select_related("cobro_efectivo").filter(cobranzas_uuid=uuid).first()
+    if factura is None:
+        raise CajerosError("No se encontró el cobro del panel.", 404)
+    try:
+        tipo, objeto_id = anulacion.comprobante_de_factura(factura)
+        anuladas = anulacion.anular_comprobante(tipo, objeto_id, usuario, motivo)
+    except anulacion.AnulacionInvalida as exc:
+        raise CajerosError(str(exc)) from exc
+    return {"anuladas": len(anuladas), "facturas": [f.numero_factura or f.pk for f in anuladas]}
