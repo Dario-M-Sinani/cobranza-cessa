@@ -109,6 +109,8 @@ def _leer() -> list[dict]:
                 programados = de_la_web
         except (requests.RequestException, ValueError) as exc:
             errores.append(f"web: {exc}")
+    if not settings.KIOSCO_CORTES_EMERGENCIAS:
+        emergencias = []
     for error in errores:
         logger.warning("kiosco.avisos_no_leidos %s", error)
     if programados is None and errores:

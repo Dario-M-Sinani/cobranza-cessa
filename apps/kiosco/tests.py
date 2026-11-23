@@ -644,7 +644,15 @@ class TestAvisos:
         settings.KIOSCO_CORTES_API_URL = ""
         settings.KIOSCO_CORTES_API_TOKEN = "token-cortes"
         settings.KIOSCO_CORTES_API_VERIFY = "true"
+        settings.KIOSCO_CORTES_EMERGENCIAS = True
         cache.clear()
+
+    def test_con_emergencias_apagadas_solo_muestra_programados(self, settings, monkeypatch):
+        from . import avisos
+
+        settings.KIOSCO_CORTES_EMERGENCIAS = False
+        monkeypatch.setattr(avisos.requests, "get", lambda *a, **k: RespuestaWeb(PAGINA_INICIO))
+        assert [a["tipo"] for a in avisos.avisos()] == ["programado"]
 
     def _web_y_api(self, monkeypatch, api, web=PAGINA_INICIO):
         from . import avisos

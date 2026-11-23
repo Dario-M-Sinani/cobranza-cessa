@@ -295,6 +295,8 @@ KIOSCO_CORTES_API_TOKEN = env("KIOSCO_CORTES_API_TOKEN", default="")
 KIOSCO_CORTES_API_VERIFY = env("KIOSCO_CORTES_API_VERIFY", default="true")
 KIOSCO_AVISOS_URL = env("KIOSCO_AVISOS_URL", default="https://cessa.com.bo/")
 KIOSCO_AVISOS_MINUTOS = env.int("KIOSCO_AVISOS_MINUTOS", default=10)
+# Cortes de emergencia (solo los trae la web). Apagados hasta que el servicio de cortes los exponga.
+KIOSCO_CORTES_EMERGENCIAS = env.bool("KIOSCO_CORTES_EMERGENCIAS", default=False)
 # Preguntas frecuentes del cuadro "preguntas": las mismas del asistente de la web (Filament, Faq).
 KIOSCO_PREGUNTAS_URL = env("KIOSCO_PREGUNTAS_URL", default="https://www.cessa.com.bo/api/asistente/faqs")
 KIOSCO_PREGUNTAS_MINUTOS = env.int("KIOSCO_PREGUNTAS_MINUTOS", default=30)
