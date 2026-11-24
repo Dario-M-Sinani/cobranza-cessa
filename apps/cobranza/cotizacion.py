@@ -309,6 +309,7 @@ def estado(fila: CotizacionDolar, cambios: list[CotizacionCambio] | None = None)
         "bcb_error": fila.bcb_error,
         "carga_error": fila.carga_error,
         "carga_automatica": bool(settings.COTIZACION_CARGA_AUTOMATICA and _por_api_siic()),
+        "editable": bool(settings.COTIZACION_EDITABLE),
         "cambios": [_cambio(c) for c in cambios],  # del más nuevo al más viejo
         "alertas": alertas,
     }

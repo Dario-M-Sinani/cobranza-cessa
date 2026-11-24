@@ -283,10 +283,20 @@ class TestCorreccion:
     @pytest.fixture(autouse=True)
     def _api(self, settings):
         settings.SIIC_DEUDA_BASE_URL, settings.SIIC_DEUDA_TOKEN = "http://siic.test", "tok"
+        settings.COTIZACION_EDITABLE = True
 
     @pytest.fixture
     def sup(self, db):
         return Usuario.objects.create_user(username="sup-local", password="x", rol=Usuario.Rol.SUPERVISOR)
+
+    def test_sin_edicion_no_se_toca_el_siic(self, sup, settings):
+        """Producción: solo la carga automática; corregir o cargar a mano se rechaza sin llamar al SIIC."""
+        settings.COTIZACION_EDITABLE = False
+        siic = _Siic({_ymd(timezone.localdate()): "11.7500"})
+        r = self._put(sup, siic, valor="11,70", motivo="intento de corrección")
+        assert r.status_code == 403
+        assert siic.escrituras == []  # ni POST ni PUT al SIIC
+        assert not CotizacionCambio.objects.exists()
 
     def _put(self, usuario, siic, fecha=None, **datos):
         from services import deuda_client

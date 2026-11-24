@@ -192,6 +192,9 @@ FACTURA_BO_COTIZACION_URL = env("FACTURA_BO_COTIZACION_URL", default="https://ap
 # La tarea de cada hora carga en el SIIC (API SIIC, COTIZA) la cotización del BCB de cada día de su vigencia que
 # falte. Solo sirve donde la API SIIC tiene la carga habilitada (test: COTIZA_BIBLIOTECA=RESTAURA).
 COTIZACION_CARGA_AUTOMATICA = env.bool("COTIZACION_CARGA_AUTOMATICA", default=False)
+# Corregir o cargar a mano la cotización desde el panel. Apagado (como en producción): solo la carga
+# automática del BCB, que queda registrada igual; la pantalla muestra el registro sin botones.
+COTIZACION_EDITABLE = env.bool("COTIZACION_EDITABLE", default=False)
 
 # Integración MC4/SIP (ver services/mc4_client.py) -- misma pasarela que ya usa
 # cessa-laravel en producción (SipQrProvider.php) contra Banco BISA. Sin

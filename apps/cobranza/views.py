@@ -1090,6 +1090,11 @@ class CotizacionDolarDiaView(APIView):
     permission_classes = [IsAuthenticated, EsSupervisorOAdmin]
 
     def put(self, request, fecha):
+        if not settings.COTIZACION_EDITABLE:
+            return Response(
+                {"detail": "La cotización no se edita desde el panel: se carga sola con la oficial del BCB y queda registrada."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         try:
             dia = datetime.strptime(fecha, "%Y-%m-%d").date()
         except ValueError:
