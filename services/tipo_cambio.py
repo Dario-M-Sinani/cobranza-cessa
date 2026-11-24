@@ -4,12 +4,17 @@ comparar con la cotización cargada en el SIIC (la que manda: con esa se cierran
 El BCB no tiene una API documentada: se lee su página de "última cotización". Si falla (caída,
 cambio de formato), se usa factura.bo, que la copia del BCB en JSON. Solo se piden datos públicos:
 no se manda nada del panel ni de los usuarios.
+
+Para cargar en el SIIC no alcanza con una fuente: `leer_contraste` lee una segunda (apibcb.cucu.bo, que
+también copia al BCB) y la carga solo se hace si las dos dan el mismo valor (apps/cobranza/cotizacion.py).
 """
 from __future__ import annotations
 
 import html
 import re
 from dataclasses import dataclass
+from datetime import date
+from urllib.parse import urlparse
 from decimal import Decimal, InvalidOperation
 
 import requests
@@ -81,3 +86,32 @@ def tipo_cambio_oficial() -> TipoCambioBCB:
             return leer_de_factura_bo()
         except TipoCambioError as segundo:
             raise TipoCambioError(f"{primero} / {segundo}") from segundo
+
+
+@dataclass
+class Contraste:
+    valor: Decimal
+    desde: date
+    hasta: date
+    fuente: str  # el host, p. ej. "apibcb.cucu.bo"
+
+
+def leer_contraste() -> Contraste:
+    """La segunda opinión (COTIZACION_CONTRASTE_URL): {"tc_oficial": {"valor", "vigencia_desde", "vigencia_hasta",
+    "desactualizado"}}. Cualquier cosa rara → TipoCambioError (y entonces no se carga nada)."""
+    url = settings.COTIZACION_CONTRASTE_URL
+    fuente = urlparse(url).hostname or url
+    try:
+        r = requests.get(url, timeout=TIMEOUT, headers={"User-Agent": _AGENTE})
+        r.raise_for_status()
+        tc = (r.json() or {}).get("tc_oficial") or {}
+    except (requests.RequestException, ValueError, AttributeError) as exc:
+        raise TipoCambioError(f"{fuente} no responde: {exc}") from exc
+    if tc.get("desactualizado") is not False:
+        raise TipoCambioError(f"{fuente} dice que su cotización está desactualizada (o no lo dice).")
+    try:
+        valor = _decimal(Decimal(str(tc.get("valor")).strip()))
+        desde, hasta = date.fromisoformat(str(tc.get("vigencia_desde"))), date.fromisoformat(str(tc.get("vigencia_hasta")))
+    except (InvalidOperation, ValueError) as exc:
+        raise TipoCambioError(f"{fuente} trae datos ilegibles: {exc}") from exc
+    return Contraste(valor, desde, hasta, fuente)

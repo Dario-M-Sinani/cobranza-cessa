@@ -7,7 +7,9 @@ cada una y cuándo se leyó.
   a leer cada pocos minutos: si a la mañana todavía no estaba cargada, aparece en cuanto la carguen.
 - La del BCB la lee una tarea cada hora (apps/cobranza/tasks.py) y, si falta, la primera consulta.
 - Carga automática (COTIZACION_CARGA_AUTOMATICA): la misma tarea carga en el SIIC, con el valor del BCB,
-  cada día de su vigencia (de hoy en adelante) que todavía no tenga cotización. Sin nadie que confirme.
+  cada día de su vigencia (de hoy en adelante) que todavía no tenga cotización. Sin nadie que confirme, pero
+  con dos fuentes: el valor tiene que venir de bcb.gob.bo (no del respaldo factura.bo) y coincidir con el de
+  COTIZACION_CONTRASTE_URL vigente hoy. Si no, no carga nada y queda la alerta.
   La API SIIC solo inserta si el día no tiene, y solo donde está habilitada (hoy, la copia de test
   RESTAURA; ADMINDTA, la de prod, la sigue cargando DTIC hasta que acuerden).
 - Corrección: supervisor/admin cambia el valor de un día con un motivo; la API SIIC solo lo cambia si
@@ -38,7 +40,7 @@ from services.deuda_client import (
     corregir_cotizacion_siic,
     cotizacion_siic,
 )
-from services.tipo_cambio import TipoCambioError, tipo_cambio_oficial
+from services.tipo_cambio import TipoCambioError, leer_contraste, tipo_cambio_oficial
 
 from .models import CotizacionCambio, CotizacionDolar
 
@@ -181,12 +183,25 @@ def carga_automatica() -> list[dict]:
             bcb.carga_error = f"Vigencia del BCB que no se entiende o que no incluye hoy: {bcb.bcb_vigencia!r}. No se cargó nada."
             bcb.save(update_fields=["carga_error", "actualizada_en"])
         return []
-    origen = f"{bcb.bcb_fuente or 'BCB'}, vigencia {bcb.bcb_vigencia}"
-    hecho = []
+    faltan = []
     for dia in dias:
         fila = actualizar_siic(_del_dia(dia), forzar=True)
         if fila.siic_error or fila.siic is not None:
             continue  # no se pudo leer (se reintenta en una hora) o ya tiene
+        faltan.append((dia, fila))
+    if not faltan:
+        _limpiar_aviso(bcb)
+        return []
+    confirmada, problema = _verificar(bcb, hoy)
+    if problema:
+        mensaje = f"Verificación: {problema} No se cargó nada; se vuelve a intentar en una hora."[:500]
+        if bcb.carga_error != mensaje:
+            bcb.carga_error = mensaje
+            bcb.save(update_fields=["carga_error", "actualizada_en"])
+        return []
+    origen = f"{bcb.bcb_fuente or 'BCB'}, vigencia {bcb.bcb_vigencia}, {confirmada}"
+    hecho = []
+    for dia, fila in faltan:
         try:
             r = cargar_cotizacion_siic(dia.strftime("%Y%m%d"), f"{bcb.bcb:.4f}")
         except DeudaClientError as exc:  # incluye CotizacionNoCargada (no habilitada, ya había otra...)
@@ -203,11 +218,35 @@ def carga_automatica() -> list[dict]:
         if r.get("insertada"):
             _registrar(dia, CotizacionCambio.Accion.CARGA_AUTOMATICA, None, fila.siic, origen, str(r.get("tabla") or ""))
             hecho.append({"fecha": dia.isoformat(), "cotizacion": f"{fila.siic:.4f}"})
-    if bcb.carga_error.startswith("Vigencia"):
-        bcb.refresh_from_db()
+    _limpiar_aviso(bcb)
+    return hecho
+
+
+def _limpiar_aviso(bcb: CotizacionDolar):
+    """Saca el aviso de vigencia o verificación de una vuelta anterior (los rechazos del SIIC quedan)."""
+    bcb.refresh_from_db()
+    if bcb.carga_error.startswith(("Vigencia", "Verificación")):
         bcb.carga_error = ""
         bcb.save(update_fields=["carga_error", "actualizada_en"])
-    return hecho
+
+
+def _verificar(bcb: CotizacionDolar, hoy: date) -> tuple[str, str]:
+    """Antes de escribir en el SIIC: (constancia para el registro, "") si se puede cargar, o ("", motivo)."""
+    if bcb.bcb_fuente != "bcb.gob.bo":
+        return "", (f"la oficial de hoy se leyó de {bcb.bcb_fuente or 'otra fuente'} porque bcb.gob.bo no respondió; "
+                    "al SIIC solo se carga la leída del BCB.")
+    if not settings.COTIZACION_CONTRASTE_URL:
+        return "sin segunda fuente (COTIZACION_CONTRASTE_URL vacío)", ""
+    try:
+        otra = leer_contraste()
+    except TipoCambioError as exc:
+        return "", f"no se pudo confirmar el valor con la segunda fuente ({exc})."
+    if not otra.desde <= hoy <= otra.hasta:
+        return "", (f"{otra.fuente} no tiene la cotización vigente hoy (la suya va del {otra.desde:%d/%m/%Y} "
+                    f"al {otra.hasta:%d/%m/%Y}).")
+    if abs(otra.valor - bcb.bcb) >= Decimal("0.00005"):
+        return "", f"bcb.gob.bo da Bs {bcb.bcb:.4f} y {otra.fuente} Bs {otra.valor:.4f}: no coinciden."
+    return f"confirmada con {otra.fuente} (Bs {otra.valor:.4f})", ""
 
 
 class CambioRechazado(Exception):

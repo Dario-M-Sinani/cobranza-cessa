@@ -17,7 +17,7 @@ from apps.usuarios import nest
 from apps.usuarios.models import Usuario
 from services import tipo_cambio
 from services.cobranzas_banco_client import CajeraCobranzasClient, CobranzasBancoRequestError
-from services.tipo_cambio import TipoCambioBCB, TipoCambioError
+from services.tipo_cambio import Contraste, TipoCambioBCB, TipoCambioError
 
 PAGINA_BCB = """<html><head><style>.x{color:red}</style></head><body>
 <h2>TIPO DE CAMBIO OFICIAL DEL DÓLAR ESTADOUNIDENSE</h2><p>Última cotización</p><p>Bs 11,67/$us</p>
@@ -73,6 +73,28 @@ class TestLecturaBCB:
     def test_valor_fuera_de_rango(self):
         with pytest.raises(TipoCambioError):
             tipo_cambio._decimal("0,07")
+
+
+CUCU = {"tc_oficial": {"valor": 11.78, "vigencia_desde": "2026-11-24", "vigencia_hasta": "2026-11-24", "desactualizado": False}}
+
+
+class TestSegundaFuente:
+    def test_lee_valor_y_vigencia(self):
+        with patch.object(requests, "get", return_value=_respuesta(json=CUCU)):
+            c = tipo_cambio.leer_contraste()
+        assert (c.valor, c.desde, c.hasta, c.fuente) == (Decimal("11.78"), date(2026, 11, 24), date(2026, 11, 24), "apibcb.cucu.bo")
+
+    @pytest.mark.parametrize("cambio", [{"desactualizado": True}, {"desactualizado": None}, {"valor": "abc"},
+                                        {"valor": 0.5}, {"vigencia_desde": "ayer"}])
+    def test_lo_dudoso_es_error(self, cambio):
+        datos = {"tc_oficial": {**CUCU["tc_oficial"], **cambio}}
+        with patch.object(requests, "get", return_value=_respuesta(json=datos)), pytest.raises(TipoCambioError):
+            tipo_cambio.leer_contraste()
+
+    def test_caida_es_error(self):
+        with patch.object(requests, "get", side_effect=requests.ConnectionError("caído")), \
+             pytest.raises(TipoCambioError, match="apibcb.cucu.bo no responde"):
+            tipo_cambio.leer_contraste()
 
 
 @pytest.fixture
@@ -224,10 +246,16 @@ class TestCargaAutomatica:
         settings.SIIC_DEUDA_BASE_URL, settings.SIIC_DEUDA_TOKEN = "http://siic.test", "tok"
         settings.COTIZACION_CARGA_AUTOMATICA = True
 
-    def _correr(self, siic, oficial):
+    def _correr(self, siic, oficial, contraste="igual"):
         from services import deuda_client
+        hoy = timezone.localdate()
+        if contraste == "igual":
+            contraste = Contraste(oficial.valor, hoy, hoy, "apibcb.cucu.bo")
+        otra = Mock(side_effect=contraste) if isinstance(contraste, Exception) else Mock(return_value=contraste)
+        self.contraste = otra
         with patch.object(deuda_client.requests, "request", side_effect=siic), \
-             patch.object(cotizacion, "tipo_cambio_oficial", return_value=oficial):
+             patch.object(cotizacion, "tipo_cambio_oficial", return_value=oficial), \
+             patch.object(cotizacion, "leer_contraste", otra):
             return leer_cotizacion_bcb()
 
     def _oficial(self, desde, hasta):
@@ -247,6 +275,8 @@ class TestCargaAutomatica:
         assert [(c.accion, c.usuario, c.valor_anterior, c.valor_nuevo, c.tabla) for c in cambios] == [
             ("carga_automatica", None, None, Decimal("11.75"), "RESTAURA.COTIZA")] * 2
         assert cambios[0].origen.startswith("bcb.gob.bo, vigencia del")
+        assert cambios[0].origen.endswith("confirmada con apibcb.cucu.bo (Bs 11.7500)")
+        self.contraste.assert_called_once()  # una consulta por vuelta, no una por día
         assert LogAuditoria.objects.filter(usuario=None, accion__contains="Carga automática").count() == 2
         assert CotizacionDolar.objects.get(fecha=hoy).siic == Decimal("11.75")
         assert CotizacionDolar.objects.get(fecha=pasado).bcb == Decimal("11.75")
@@ -271,6 +301,45 @@ class TestCargaAutomatica:
         fila = CotizacionDolar.objects.get(fecha=timezone.localdate())
         assert "DTIC" in fila.carga_error and CotizacionCambio.objects.count() == 0
         assert [a["tipo"] for a in cotizacion.estado(fila)["alertas"]] == ["sin_siic", "carga_fallida"]
+
+    def _no_carga(self, siic, texto):
+        assert siic.escrituras == [] and CotizacionCambio.objects.count() == 0
+        fila = CotizacionDolar.objects.get(fecha=timezone.localdate())
+        assert fila.carga_error.startswith("Verificación") and texto in fila.carga_error, fila.carga_error
+        assert [a["tipo"] for a in cotizacion.estado(fila)["alertas"]] == ["sin_siic", "carga_fallida"]
+
+    def test_si_la_segunda_fuente_da_otro_valor_no_carga(self):
+        hoy = timezone.localdate()
+        siic = _Siic()
+        self._correr(siic, self._oficial(0, 0), Contraste(Decimal("11.80"), hoy, hoy, "apibcb.cucu.bo"))
+        self._no_carga(siic, "no coinciden")
+
+    def test_si_la_segunda_fuente_no_responde_no_carga(self):
+        siic = _Siic()
+        self._correr(siic, self._oficial(0, 0), TipoCambioError("apibcb.cucu.bo no responde: caído"))
+        self._no_carga(siic, "no responde")
+
+    def test_si_la_segunda_fuente_no_esta_vigente_hoy_no_carga(self):
+        ayer = timezone.localdate() - timedelta(days=1)
+        siic = _Siic()
+        self._correr(siic, self._oficial(0, 0), Contraste(Decimal("11.75"), ayer, ayer, "apibcb.cucu.bo"))
+        self._no_carga(siic, "vigente hoy")
+
+    def test_lo_leido_de_factura_bo_no_se_carga(self):
+        siic = _Siic()
+        oficial = self._oficial(0, 0)
+        self._correr(siic, TipoCambioBCB(oficial.valor, oficial.vigencia, "factura.bo"))
+        self._no_carga(siic, "factura.bo")
+        self.contraste.assert_not_called()
+
+    def test_cuando_vuelven_a_coincidir_carga_y_saca_el_aviso(self):
+        hoy = timezone.localdate()
+        siic = _Siic()
+        self._correr(siic, self._oficial(0, 0), Contraste(Decimal("11.80"), hoy, hoy, "apibcb.cucu.bo"))
+        CotizacionDolar.objects.update(siic_leida_en=None, bcb_leida_en=None)
+        assert len(self._correr(siic, self._oficial(0, 0))) == 1
+        fila = CotizacionDolar.objects.get(fecha=hoy)
+        assert fila.carga_error == "" and fila.siic == Decimal("11.75")
 
     def test_apagada_no_escribe(self, settings):
         settings.COTIZACION_CARGA_AUTOMATICA = False

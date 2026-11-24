@@ -189,6 +189,9 @@ CELERY_BEAT_SCHEDULE = {
 
 BCB_COTIZACION_URL = env("BCB_COTIZACION_URL", default="https://www.bcb.gob.bo/bcb_tco_publico_ultima_cotizacion.php")
 FACTURA_BO_COTIZACION_URL = env("FACTURA_BO_COTIZACION_URL", default="https://api.factura.bo/ExchangeRate")
+# Segunda opinión antes de cargar en el SIIC: la carga automática solo escribe si la cotización leída de
+# bcb.gob.bo coincide con la de esta API (mismo valor y vigente hoy). Vacío = sin verificación (no recomendado).
+COTIZACION_CONTRASTE_URL = env("COTIZACION_CONTRASTE_URL", default="https://apibcb.cucu.bo/api/v1/tc/oficial")
 # La tarea de cada hora carga en el SIIC (API SIIC, COTIZA) la cotización del BCB de cada día de su vigencia que
 # falte. Solo sirve donde la API SIIC tiene la carga habilitada (test: COTIZA_BIBLIOTECA=RESTAURA).
 COTIZACION_CARGA_AUTOMATICA = env.bool("COTIZACION_CARGA_AUTOMATICA", default=False)
