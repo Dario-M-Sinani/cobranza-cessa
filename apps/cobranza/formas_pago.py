@@ -20,6 +20,9 @@ from services.cobranzas_banco_client import CajeraCobranzasClient, CobranzasBanc
 
 ENTIDAD_CESSA = 1
 TOPE_BANCOS = Decimal("50000")
+# Bancarización: un pago de Bs 50.000 o más tiene que pasar por el sistema financiero con un documento
+# (cheque, depósito...), no por QR. Las demás formas de pago siguen habilitadas.
+TOPE_QR = Decimal("50000")
 # Los que no se eligen al cobrar: el efectivo es la pestaña Efectivo y el QR, la pestaña QR. DEVOLUCIONES
 # tampoco: la app Java lo saca de la lista al cobrar (entesEfectivo.remove(5), el ente 8 del SIIC).
 NO_SE_ELIGEN = {"EFECTIVO", "DOLARES", "PAGO POR QR", "DEVOLUCIONES"}
@@ -110,6 +113,13 @@ def validar_tope(usuario, total: Decimal) -> None:
     if entidad and entidad != ENTIDAD_CESSA and total >= TOPE_BANCOS:
         raise FormaPagoInvalida(
             "No se puede cobrar Bs 50.000 o más en una entidad financiera: ese pago se hace en oficinas de CESSA."
+        )
+
+
+def validar_tope_qr(total: Decimal) -> None:
+    if total >= TOPE_QR:
+        raise FormaPagoInvalida(
+            "Bs 50.000 o más: por bancarización no se cobra con QR. Usa cheque, depósito u otro medio."
         )
 
 

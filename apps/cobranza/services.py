@@ -8,6 +8,7 @@ from datetime import date, timedelta
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.auditoria.models import LogAuditoria
@@ -84,9 +85,11 @@ def _documento_qr(transaccion: TransaccionQR) -> dict:
     )
 
 
-def _validar_tope(usuario, total: Decimal) -> None:
+def _validar_tope(usuario, total: Decimal, qr: bool = False) -> None:
     try:
         formas_pago.validar_tope(usuario, total)
+        if qr:
+            formas_pago.validar_tope_qr(total)
     except formas_pago.FormaPagoInvalida as exc:
         raise MontoInvalidoError(str(exc)) from exc
 
@@ -133,6 +136,34 @@ def _aplicar_estado(hermanas: list[TransaccionQR], nuevo_estado: str, usuario=No
 def _importe_item(item: dict) -> Decimal:
     # items_snapshot guarda el importe ya firmado (ItemDeuda.importe: negativo = crédito).
     return Decimal(str(item.get("importe", 0)))
+
+
+def _clave_item(item: dict) -> tuple[str, str, str]:
+    return (str(item.get("nro_cliente") or ""), str(item.get("tipo") or ""), str(item.get("nro_comprobante") or ""))
+
+
+def quitar_cobrados_sin_registrar(codigo_externo: str, items: list[dict]) -> tuple[list[dict], list[dict]]:
+    """`(items que siguen pendientes, items que el panel ya cobró)`.
+
+    El cobro se registra en el SIIC cuando la cajera imprime la factura o, si no, con la tarea de
+    cada minuto. Mientras tanto el SIIC todavía los muestra como deuda: sin esto, consultar al mismo
+    cliente en ese rato dejaría cobrarlos dos veces."""
+    facturas = Factura.objects.filter(
+        estado_envio__in=[Factura.EstadoEnvio.PENDIENTE, Factura.EstadoEnvio.ERROR]
+    ).filter(
+        Q(cobro_efectivo__deuda__cliente__codigo_externo=codigo_externo)
+        | Q(transaccion_qr__deuda__cliente__codigo_externo=codigo_externo)
+    ).select_related("cobro_efectivo__deuda", "transaccion_qr__deuda")
+    cobrados = set()
+    for factura in facturas:
+        origen = factura.origen
+        for item in origen.items_cobrados or origen.deuda.items_snapshot or []:
+            cobrados.add(_clave_item(item))
+    if not cobrados:
+        return items, []
+    pendientes = [i for i in items if _clave_item(i) not in cobrados]
+    quitados = [i for i in items if _clave_item(i) in cobrados]
+    return pendientes, quitados
 
 
 def resolver_seleccion(
@@ -213,7 +244,7 @@ def generar_transaccion_qr(
     resumen de cierre de caja (`reportes.resumen_caja`) incluya también los
     QR generados en el turno, no solo el efectivo."""
     monto_a_cobrar, items_cobrados = resolver_seleccion(deuda, monto, cantidad_comprobantes)
-    _validar_tope(usuario, monto_a_cobrar)
+    _validar_tope(usuario, monto_a_cobrar, qr=True)
 
     ya_en_curso = TransaccionQR.objects.filter(
         deuda__cliente=deuda.cliente,
@@ -276,7 +307,7 @@ def generar_qr_agrupado(seleccion: list[tuple[Deuda, int | None]], usuario) -> Q
         monto, items = resolver_seleccion(deuda, None, cantidad)
         partes.append((deuda, monto, items))
     total = sum((monto for _, monto, _ in partes), Decimal("0"))
-    _validar_tope(usuario, total)
+    _validar_tope(usuario, total, qr=True)
 
     en_curso = TransaccionQR.objects.filter(
         deuda__cliente_id__in=clientes,

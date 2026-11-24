@@ -42,6 +42,20 @@ class TestProformas:
         assert [(c["nro_cliente"], c["cantidad"], c["total"]) for c in r.data["clientes"]] == [
             ("127001", 2, "80.50"), ("127002", 0, "0.00")]
 
+    @pytest.mark.parametrize("importe_credito", ["-20.00", "20.00"])
+    def test_las_notas_de_credito_restan(self, cajera_nest, importe_credito):
+        """La Nest manda el crédito negativo y con debito_credito; el signo se toma de debito_credito, así
+        que un crédito que llegara en positivo tampoco sumaría (antes la proforma mostraba de más)."""
+        deudas = [{"nro_cliente": "127001", "deudas": [
+            {"importe": "100.50", "debito_credito": "DEBITO"},
+            {"importe": importe_credito, "debito_credito": "CREDITO"},
+        ]}]
+        respuestas = {"/v1/proformas/27": _respuesta(200, CABECERA), "/v1/proformas/27/deudas": _respuesta(200, deudas)}
+        with patch.object(CajeraCobranzasClient, "_request_autenticado", autospec=True,
+                          side_effect=lambda self, m, ruta, **k: respuestas[ruta]):
+            r = _api(cajera_nest).get("/api/proformas/27/")
+        assert r.data["clientes"][0]["total"] == "80.50"
+
     def test_proforma_sin_deuda(self, cajera_nest):
         respuestas = {"/v1/proformas/27": _respuesta(200, CABECERA), "/v1/proformas/27/deudas": _respuesta(404, {"error": "x"})}
         with patch.object(CajeraCobranzasClient, "_request_autenticado", autospec=True,

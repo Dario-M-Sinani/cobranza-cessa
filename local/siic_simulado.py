@@ -384,6 +384,12 @@ class Manejador(BaseHTTPRequestHandler):
             cuerpo = self._cuerpo()
             return self._json(200, {"pagados": _marcar_pagados(cuerpo.get("items") or [], str(cuerpo.get("uuid") or ""))})
         if url.path == "/_simulador/reiniciar":
+            # {"solo": "deudas"}: vuelve a dejar con deuda a los clientes sin tocar cajas ni transacciones.
+            if self._cuerpo().get("solo") == "deudas":
+                with _candado:
+                    ESTADO["pagados"] = {}
+                    _guardar_estado(ESTADO)
+                return self._json(200, {"ok": True, "solo": "deudas"})
             with _candado:
                 ESTADO["pagados"] = {}
                 ESTADO["transacciones"] = {}
@@ -919,16 +925,18 @@ class ManejadorCobranzas(Manejador):
         return self._json(200, sorted(filas, key=lambda f: f["fecha_creacion"], reverse=True))
 
     def _proforma(self, numero: int, deudas: bool, q: dict):
-        """Proforma N: 6 medidores de una empresa inventada (clientes 1NN001..1NN006 con NN = N)."""
+        """Proforma N: 6 medidores de una empresa inventada (clientes 1NN001..1NN006 con NN = N). La 50 es
+        grande, como la de una alcaldía: 60 medidores (150001..150060), unas 150 facturas o más."""
         if not 1 <= numero <= 99:
             return self._json(404, {"error": f"No existe ninguna proforma con número {numero}", "code": 404})
-        nros = [str(100000 + numero * 1000 + i) for i in range(1, 7)]
+        cantidad = 60 if numero == 50 else 6
+        nros = [str(100000 + numero * 1000 + i) for i in range(1, cantidad + 1)]
         if not deudas:
             clientes = []
             for nro in nros:
                 _, datos = _consulta_cliente(nro)
                 clientes.append({k: datos.get(k) for k in ("nro_cliente", "nombre", "direccion", "categoria_descripcion", "nro_medidor")})
-            return self._json(200, {"numero": str(numero), "descripcion": f"EMPRESA DEMO {numero} S.R.L.", "clientes": clientes})
+            return self._json(200, {"numero": str(numero), "descripcion": "GOBIERNO MUNICIPAL DEMO" if numero == 50 else f"EMPRESA DEMO {numero} S.R.L.", "clientes": clientes})
         try:
             hasta = int(q.get("anio", "0")) * 100 + int(q.get("mes", "0"))
         except ValueError:
@@ -936,6 +944,8 @@ class ManejadorCobranzas(Manejador):
         filas = []
         for nro in nros:
             items = [i for i in (_cliente(nro) or {"deuda": []})["deuda"] if int(i["anio"]) * 100 + int(i["mes"]) <= hasta]
+            # Como la Nest real (proformas.repository.ts): el importe de un crédito ya viene negativo.
+            items = [{**i, "importe": f"-{i['importe']}"} if i["debito_credito"] == "CREDITO" else i for i in items]
             if items:
                 filas.append({"nro_cliente": nro, "deudas": items})
         if not filas:

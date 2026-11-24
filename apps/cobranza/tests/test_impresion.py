@@ -108,6 +108,11 @@ class TestComprobantesDelDia:
         assert filas[("efectivo", individual)]["impresiones"] == 1
         assert filas[("grupo", grupo)]["impresiones"] == 0
         assert [c["codigo"] for c in filas[("grupo", grupo)]["clientes"]] == ["101194", "101591"]
+        # Cliente por cliente, con su monto y su factura (para pedirla sola en un cobro de cientos).
+        detalle = filas[("grupo", grupo)]["detalle"]
+        assert [d["codigo"] for d in detalle] == ["101194", "101591"]
+        assert all(set(d) == {"codigo", "nombre", "monto", "factura", "factura_id"} for d in detalle)
+        assert "detalle" not in filas[("efectivo", individual)]
         assert filas[("efectivo", individual)]["numero"] == f"COMP-EF-{individual}"
         # Del más nuevo al más viejo.
         assert r.data["comprobantes"][0]["tipo"] == "grupo"

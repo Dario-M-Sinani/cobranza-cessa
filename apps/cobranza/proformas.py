@@ -10,6 +10,7 @@ from decimal import Decimal
 from django.conf import settings
 
 from services.cobranzas_banco_client import CajeraCobranzasClient, CobranzasBancoError, get_cobranzas_banco_client
+from services.deuda_client import _importe_firmado
 
 
 class ProformaError(Exception):
@@ -55,7 +56,8 @@ def consultar(usuario, numero: int, anio: int, mes: int) -> dict:
     for c in cabecera.get("clientes") or []:
         nro = str(c.get("nro_cliente") or "").strip()
         items = por_cliente.get(nro, [])
-        total = sum((Decimal(str(i.get("importe") or 0)) for i in items), Decimal("0"))
+        # Las notas de crédito restan (el signo sale de debito_credito, igual que en la consulta de deuda).
+        total = sum((_importe_firmado(i) if i.get("debito_credito") else Decimal(str(i.get("importe") or 0)) for i in items), Decimal("0"))
         clientes.append({
             "nro_cliente": nro,
             "nombre": str(c.get("nombre") or "").strip(),
@@ -68,5 +70,5 @@ def consultar(usuario, numero: int, anio: int, mes: int) -> dict:
         "numero": numero,
         "descripcion": str(cabecera.get("descripcion") or "").strip(),
         "clientes": clientes,
-        "con_deuda": sum(1 for c in clientes if c["cantidad"]),
+        "con_deuda": sum(1 for c in clientes if c["cantidad"] and Decimal(c["total"]) > 0),
     }

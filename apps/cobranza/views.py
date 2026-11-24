@@ -64,6 +64,7 @@ from .services import (
     enviar_factura_con_candado,
     generar_qr_agrupado,
     generar_transaccion_qr,
+    quitar_cobrados_sin_registrar,
     registrar_cobro_efectivo,
     registrar_cobro_efectivo_agrupado,
 )
@@ -167,6 +168,12 @@ class ConsultarDeudaView(APIView):
             defaults={"nombre": resultado.nombre_cliente or codigo_externo},
         )
         items = [asdict(item) for item in resultado.items]
+        # Lo que el panel ya cobró y el SIIC todavía no registró no se vuelve a ofrecer.
+        items, ya_cobrados = quitar_cobrados_sin_registrar(codigo_externo, items)
+        monto_total = resultado.monto_total - sum((Decimal(str(i.get("importe", 0))) for i in ya_cobrados), Decimal("0"))
+        datos_cliente = dict(resultado.datos_cliente or {})
+        if ya_cobrados:
+            datos_cliente["cobrados_sin_registrar"] = len(ya_cobrados)
         # Consumo (kWh) para mostrar al cajero; best effort, no frena el cobro si el SIIC falla.
         # construir_detalle() arma el detalle de pago con campos explícitos: esta clave extra
         # no viaja a api-cobranzas.
@@ -176,11 +183,11 @@ class ConsultarDeudaView(APIView):
             item["consumo_kwh"] = datos["consumo_kwh"] if datos else None
         deuda = Deuda.objects.create(
             cliente=cliente,
-            monto=resultado.monto_total,
+            monto=monto_total,
             # Snapshot crudo por ítem -- lo necesita enviar_factura_a_siic()
             # para armar el "detalle" real que exige api-cobranzas-bancos.
             items_snapshot=items,
-            datos_cliente=resultado.datos_cliente,
+            datos_cliente=datos_cliente,
         )
 
         return Response(DeudaSerializer(deuda).data, status=status.HTTP_201_CREATED)
@@ -910,6 +917,19 @@ class ComprobantesDelDiaView(APIView):
     def _cliente(deuda) -> dict:
         return {"codigo": deuda.cliente.codigo_externo, "nombre": deuda.cliente.nombre}
 
+    @classmethod
+    def _detalle(cls, cobros) -> list[dict]:
+        """Cliente por cliente de un cobro de varios (una proforma pueden ser cientos): su monto y su
+        factura, para pedirla sola como la de cualquier otro cobro."""
+        detalle = []
+        for c in cobros:
+            factura = getattr(c, "factura", None)
+            vigente = factura is not None and factura.estado_envio != Factura.EstadoEnvio.ANULADO
+            detalle.append(cls._cliente(c.deuda) | {
+                "monto": f"{c.monto_snapshot:.2f}", "factura": cls._factura(c), "factura_id": factura.pk if vigente else None,
+            })
+        return detalle
+
     def get(self, request):
         texto = request.query_params.get("fecha")
         try:
@@ -940,7 +960,7 @@ class ComprobantesDelDiaView(APIView):
                 "tipo": "grupo", "id": g.pk, "numero": f"COMP-GR-{g.pk}", "fecha": g.creado_en,
                 "forma_pago": _forma_pago(cobros[0]) if cobros else "Efectivo", "cajero": g.usuario.username, "monto": g.monto_total,
                 "clientes": [self._cliente(c.deuda) for c in cobros], "facturas": [self._factura(c) for c in cobros],
-                "facturas_ids": self._ids(cobros),
+                "facturas_ids": self._ids(cobros), "detalle": self._detalle(cobros),
             })
         qrs = TransaccionQR.objects.filter(
             estado=TransaccionQR.Estado.PAGADO, actualizado_en__date=fecha, **propios
@@ -960,7 +980,7 @@ class ComprobantesDelDiaView(APIView):
                 "tipo": "qrgrupo", "id": grupo_id, "numero": f"COMP-QG-{grupo_id}", "fecha": hijas[0].actualizado_en,
                 "forma_pago": "QR", "cajero": hijas[0].usuario.username, "monto": sum(t.monto_snapshot for t in hijas),
                 "clientes": [self._cliente(t.deuda) for t in hijas], "facturas": [self._factura(t) for t in hijas],
-                "facturas_ids": self._ids(hijas),
+                "facturas_ids": self._ids(hijas), "detalle": self._detalle(hijas),
             })
 
         impresiones = {}
